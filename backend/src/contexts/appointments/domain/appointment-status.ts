@@ -1,0 +1,9 @@
+export enum AppointmentStatus {
+  SCHEDULED = 'SCHEDULED',
+  CANCELLED = 'CANCELLED',
+  RESCHEDULED = 'RESCHEDULED',
+  COMPLETED = 'COMPLETED',
+  NO_SHOW = 'NO_SHOW',
+}
+
+export const ACTIVE_APPOINTMENT_STATUS = AppointmentStatus.SCHEDULED;

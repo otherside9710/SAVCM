@@ -1,0 +1,8 @@
+{
+  "description": "Padrón de demostración. Cédulas ficticias: reemplazar por datos autorizados de la EPS antes de producción.",
+  "patients": [
+    { "documentId": "1000000001", "active": true },
+    { "documentId": "1000000002", "active": true },
+    { "documentId": "1000000003", "active": true }
+  ]
+}

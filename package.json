@@ -1,0 +1,26 @@
+{
+  "name": "savcm-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema de Agendamiento Virtual de Citas de Medicina General",
+  "engines": { "node": ">=20" },
+  "workspaces": ["backend", "frontend"],
+  "overrides": {
+    "glob": "^14.0.3",
+    "minimatch": "^11.0.4",
+    "multer": "^2.5.0"
+  },
+  "scripts": {
+    "dev:backend": "npm run start:dev --workspace @savcm/backend",
+    "dev:frontend": "npm run dev --workspace @savcm/frontend",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "npm run build --workspace @savcm/backend",
+    "build:frontend": "npm run build --workspace @savcm/frontend",
+    "start:prod": "npm run start:prod --workspace @savcm/backend",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "migration:generate": "npm run migration:generate --workspace @savcm/backend",
+    "migration:run": "npm run migration:run --workspace @savcm/backend",
+    "migration:revert": "npm run migration:revert --workspace @savcm/backend"
+  }
+}
