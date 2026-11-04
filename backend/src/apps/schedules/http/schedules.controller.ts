@@ -15,6 +15,12 @@ class AvailabilityQuery {
   @IsOptional() @IsUUID() doctorId?: string;
 }
 
+class AdminAgendaQuery {
+  @IsDateString() from!: string;
+  @IsDateString() to!: string;
+  @IsOptional() @IsUUID() doctorId?: string;
+}
+
 @Controller('schedules')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class SchedulesController {
@@ -30,6 +36,12 @@ export class SchedulesController {
     @Query('from') from: string,
     @Query('to') to: string,
   ) { return this.schedules.myAgenda(user, from, to); }
+
+  @Get('admin')
+  @Roles(UserRole.ADMIN)
+  adminAgenda(@Query() query: AdminAgendaQuery) {
+    return this.schedules.adminAgenda(query.from, query.to, query.doctorId);
+  }
 
   @Post()
   @Roles(UserRole.ADMIN)

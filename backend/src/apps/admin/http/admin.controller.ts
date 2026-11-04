@@ -6,7 +6,7 @@ import { CurrentUser } from '../../shared/http/decorators/current-user.decorator
 import { Roles } from '../../shared/http/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../shared/http/guards/jwt-auth.guard';
 import { RolesGuard } from '../../shared/http/guards/roles.guard';
-import { AddRosterPatientDto, CreateReceptionistDto, SetActiveDto } from './dto/admin.dto';
+import { AddRosterPatientDto, SetActiveDto } from './dto/admin.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -15,7 +15,6 @@ export class AdminController {
   constructor(private readonly management: UserManagementService) {}
 
   @Get('users') users() { return this.management.listUsers(); }
-  @Post('users/receptionists') createReceptionist(@Body() input: CreateReceptionistDto) { return this.management.createReceptionist(input); }
   @Patch('users/:id/active') setUserActive(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: SetActiveDto,

@@ -10,16 +10,10 @@ import { AppointmentOrmEntity, DoctorOrmEntity, EpsPatientOrmEntity, ScheduleSlo
 interface RosterFile { patients: Array<{ documentId: string; active?: boolean }>; }
 
 const ADDITIONAL_DEMO_DOCTORS = [
-  { firstName: 'Diego', lastName: 'Torres' },
-  { firstName: 'Mariana', lastName: 'López' },
-  { firstName: 'Andrés', lastName: 'Castro' },
-  { firstName: 'Valentina', lastName: 'Rojas' },
-  { firstName: 'Camilo', lastName: 'Herrera' },
-  { firstName: 'Paula', lastName: 'Mendoza' },
-  { firstName: 'Sebastián', lastName: 'Vargas' },
-  { firstName: 'Natalia', lastName: 'Gómez' },
-  { firstName: 'Mateo', lastName: 'Ramírez' },
-  { firstName: 'Laura', lastName: 'Martínez' },
+  { suffix: '01', firstName: 'Diego', lastName: 'Torres', room: 'Consultorio 2' },
+  { suffix: '02', firstName: 'Mariana', lastName: 'López', room: 'Consultorio 3' },
+  { suffix: '03', firstName: 'Andrés', lastName: 'Castro', room: 'Consultorio 4' },
+  { suffix: '06', firstName: 'Paula', lastName: 'Mendoza', room: 'Consultorio 7' },
 ];
 
 @Injectable()
@@ -50,10 +44,6 @@ export class DatabaseSeedService implements OnModuleInit {
   }
 
   private async seedDemoAccountsAndAgenda() {
-    const receptionist = await this.ensureUser({
-      documentId: '1000000004', email: 'recepcion@savcm.local', firstName: 'Sofía', lastName: 'Recepción',
-      role: UserRole.RECEPTIONIST, password: process.env.DEMO_RECEPTION_PASSWORD || 'Recepcion123!',
-    });
     await this.ensureUser({
       documentId: '1000000005', email: 'admin@savcm.local', firstName: 'Alex', lastName: 'Administrador',
       role: UserRole.ADMIN, password: process.env.DEMO_ADMIN_PASSWORD || 'Admin123!',
@@ -66,11 +56,10 @@ export class DatabaseSeedService implements OnModuleInit {
     if (!doctor) doctor = await this.doctors.save(this.doctors.create({ userId: doctorUser.id, specialty: 'Medicina General', defaultRoom: 'Consultorio 1', active: true }));
     await this.seedUpcomingSlots(doctor);
 
-    for (const [index, profile] of ADDITIONAL_DEMO_DOCTORS.entries()) {
-      const suffix = String(index + 1).padStart(2, '0');
+    for (const profile of ADDITIONAL_DEMO_DOCTORS) {
       const additionalUser = await this.ensureUser({
-        documentId: String(2_000_000_000 + index + 1),
-        email: `medico${suffix}@savcm.local`,
+        documentId: String(2_000_000_000 + Number(profile.suffix)),
+        email: `medico${profile.suffix}@savcm.local`,
         firstName: profile.firstName,
         lastName: profile.lastName,
         role: UserRole.DOCTOR,
@@ -81,14 +70,14 @@ export class DatabaseSeedService implements OnModuleInit {
         additionalDoctor = await this.doctors.save(this.doctors.create({
           userId: additionalUser.id,
           specialty: 'Medicina General',
-          defaultRoom: `Consultorio ${index + 2}`,
+          defaultRoom: profile.room,
           active: true,
         }));
       }
       await this.seedUpcomingSlots(additionalDoctor);
     }
 
-    this.logger.log(`Datos de demostración listos. Recepción: ${receptionist.email}; médico: ${doctorUser.email}.`);
+    this.logger.log(`Datos de demostración listos. Administrador: admin@savcm.local; médico: ${doctorUser.email}.`);
   }
 
   private async ensureUser(input: {

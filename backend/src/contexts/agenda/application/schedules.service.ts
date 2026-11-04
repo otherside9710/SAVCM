@@ -95,6 +95,31 @@ export class SchedulesService {
     }));
   }
 
+  async adminAgenda(from: string, to: string, doctorId?: string) {
+    const query = this.slots.createQueryBuilder('slot')
+      .innerJoin('slot.doctor', 'doctor')
+      .innerJoin('doctor.user', 'doctorUser')
+      .leftJoin(AppointmentOrmEntity, 'appointment',
+        'appointment.slotId = slot.id AND appointment.status = :scheduled',
+        { scheduled: AppointmentStatus.SCHEDULED },
+      )
+      .leftJoin('appointment.patient', 'patient')
+      .select([
+        'slot.id AS "slotId"', 'slot.workDate AS date', 'slot.startTime AS "startTime"',
+        'slot.endTime AS "endTime"', 'slot.room AS room', 'slot.active AS "slotActive"',
+        'doctor.id AS "doctorId"', 'doctor.active AS "doctorActive"', 'doctor.specialty AS specialty',
+        'doctorUser.firstName AS "doctorFirstName"', 'doctorUser.lastName AS "doctorLastName"',
+        'appointment.id AS "appointmentId"', 'patient.documentId AS "patientDocument"',
+        'patient.firstName AS "patientFirstName"', 'patient.lastName AS "patientLastName"',
+      ])
+      .where('slot.workDate BETWEEN :from AND :to', { from, to });
+    if (doctorId) query.andWhere('doctor.id = :doctorId', { doctorId });
+    return query.orderBy('slot.workDate', 'ASC')
+      .addOrderBy('doctorUser.lastName', 'ASC')
+      .addOrderBy('slot.startTime', 'ASC')
+      .getRawMany();
+  }
+
   async setSlotActive(id: string, active: boolean) {
     const slot = await this.slots.findOneBy({ id });
     if (!slot) throw new NotFoundException('No encontramos el horario solicitado.');

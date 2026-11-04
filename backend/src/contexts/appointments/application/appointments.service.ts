@@ -2,7 +2,9 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,13 +14,17 @@ import { AppointmentStatus } from '../domain/appointment-status';
 import { AppointmentOrmEntity, DoctorOrmEntity, ScheduleSlotOrmEntity, UserOrmEntity } from '../../shared/infrastructure/database/entities';
 import { CreateAppointmentDto } from '../../../apps/appointments/http/dto/create-appointment.dto';
 import { colombiaDate, colombiaTime } from '../../shared/domain/colombia-time';
+import { APPOINTMENT_CANCELLATION_NOTIFIER, AppointmentCancellationNotifier } from './appointment-cancellation-notifier.port';
 
 @Injectable()
 export class AppointmentsService {
+  private readonly logger = new Logger(AppointmentsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(AppointmentOrmEntity) private readonly appointments: Repository<AppointmentOrmEntity>,
     @InjectRepository(UserOrmEntity) private readonly users: Repository<UserOrmEntity>,
+    @Inject(APPOINTMENT_CANCELLATION_NOTIFIER) private readonly cancellationNotifier: AppointmentCancellationNotifier,
   ) {}
 
   async create(input: CreateAppointmentDto, actor: AuthenticatedUser) {
@@ -55,7 +61,8 @@ export class AppointmentsService {
         'appointment.id AS id', 'appointment.patientId AS "patientId"', 'appointment.doctorId AS "doctorId"',
         'appointment.slotId AS "slotId"', 'appointment.workDate AS date', 'appointment.startTime AS "startTime"',
         'appointment.endTime AS "endTime"', 'appointment.status AS status', 'appointment.reason AS reason',
-        'appointment.cancellationReason AS "cancellationReason"', 'appointment.createdAt AS "createdAt"',
+        'appointment.cancellationReason AS "cancellationReason"', 'appointment.cancellationSource AS "cancellationSource"',
+        'appointment.createdAt AS "createdAt"',
         'patient.documentId AS "patientDocument"', 'patient.firstName AS "patientFirstName"',
         'patient.lastName AS "patientLastName"', 'doctor.specialty AS specialty', 'slot.room AS "defaultRoom"',
         'doctorUser.firstName AS "doctorFirstName"', 'doctorUser.lastName AS "doctorLastName"',
@@ -71,20 +78,47 @@ export class AppointmentsService {
   }
 
   async cancel(id: string, reason: string, actor: AuthenticatedUser) {
-    return this.dataSource.transaction(async (manager) => {
+    const cancellationReason = reason.trim();
+    if (cancellationReason.length < 3) {
+      throw new BadRequestException('Escribe un motivo de cancelación de al menos 3 caracteres.');
+    }
+    const result = await this.dataSource.transaction(async (manager) => {
       const appointment = await manager.findOne(AppointmentOrmEntity, {
         where: { id }, lock: { mode: 'pessimistic_write' },
       });
       if (!appointment) throw new NotFoundException('No encontramos la cita solicitada.');
       this.assertCanManage(appointment, actor);
-      if (appointment.status !== AppointmentStatus.SCHEDULED) {
-        throw new ConflictException('Solo se pueden cancelar citas que están agendadas.');
+      const doctorCanCancelRescheduled = actor.role === UserRole.DOCTOR && appointment.status === AppointmentStatus.RESCHEDULED;
+      if (appointment.status !== AppointmentStatus.SCHEDULED && !doctorCanCancelRescheduled) {
+        throw new ConflictException('Solo se pueden cancelar citas agendadas o reprogramadas de tu agenda.');
       }
       appointment.status = AppointmentStatus.CANCELLED;
-      appointment.cancellationReason = reason.trim();
+      appointment.cancellationReason = cancellationReason;
+      appointment.cancellationSource = actor.role === UserRole.DOCTOR
+        ? 'DOCTOR'
+        : actor.role === UserRole.PATIENT ? 'PATIENT' : 'STAFF';
       await manager.save(appointment);
-      return this.getForResponse(appointment.id, manager);
+      const patient = await manager.findOne(UserOrmEntity, { where: { id: appointment.patientId } });
+      const response = await this.getForResponse(appointment.id, manager);
+      return { response, patientEmail: patient?.email, patientFirstName: patient?.firstName };
     });
+
+    let notificationSent = false;
+    if (actor.role === UserRole.DOCTOR && result.patientEmail) {
+      try {
+        notificationSent = await this.cancellationNotifier.sendAppointmentCancellation({
+          email: result.patientEmail,
+          firstName: result.patientFirstName ?? 'paciente',
+          date: result.response.date,
+          startTime: result.response.startTime,
+          doctorName: `Dr(a). ${result.response.doctorFirstName} ${result.response.doctorLastName}`,
+          reason: cancellationReason,
+        });
+      } catch (error) {
+        this.logger.warn(`No se pudo enviar el aviso por correo de una cita cancelada: ${error instanceof Error ? error.message : 'error desconocido'}`);
+      }
+    }
+    return { ...result.response, notificationSent };
   }
 
   async reschedule(id: string, slotId: string, actor: AuthenticatedUser) {
@@ -130,11 +164,14 @@ export class AppointmentsService {
       if (actor.role === UserRole.DOCTOR && appointment.doctorId !== actor.doctorId) {
         throw new ForbiddenException('Solo puedes actualizar citas de tu agenda.');
       }
-      if (![UserRole.DOCTOR, UserRole.ADMIN, UserRole.RECEPTIONIST].includes(actor.role)) {
+      if (![UserRole.DOCTOR, UserRole.ADMIN].includes(actor.role)) {
         throw new ForbiddenException('No tienes permiso para actualizar el estado de esta cita.');
       }
       if (appointment.status !== AppointmentStatus.SCHEDULED) {
         throw new ConflictException('El estado solo se puede actualizar para una cita agendada.');
+      }
+      if (appointment.workDate > colombiaDate() || (appointment.workDate === colombiaDate() && appointment.endTime.slice(0, 5) > colombiaTime())) {
+        throw new BadRequestException('Solo puedes registrar si fue realizada o hubo inasistencia cuando haya terminado el horario de la cita.');
       }
       appointment.status = status;
       await manager.save(appointment);
@@ -148,8 +185,8 @@ export class AppointmentsService {
       if (!patient) throw new ForbiddenException('La cuenta de paciente no está activa.');
       return patient;
     }
-    if (![UserRole.RECEPTIONIST, UserRole.ADMIN].includes(actor.role) || !patientDocument) {
-      throw new BadRequestException('Recepción debe indicar la cédula del paciente que solicita la cita.');
+    if (actor.role !== UserRole.ADMIN || !patientDocument) {
+      throw new BadRequestException('Indica la cédula de un paciente registrado y activo.');
     }
     const patient = await this.users.findOneBy({ documentId: patientDocument.trim(), role: UserRole.PATIENT, active: true });
     if (!patient) throw new NotFoundException('La cédula no corresponde a un paciente registrado y activo.');
@@ -185,7 +222,10 @@ export class AppointmentsService {
     if (actor.role === UserRole.PATIENT && appointment.patientId !== actor.sub) {
       throw new ForbiddenException('Solo puedes gestionar tus propias citas.');
     }
-    if (![UserRole.PATIENT, UserRole.RECEPTIONIST, UserRole.ADMIN].includes(actor.role)) {
+    if (actor.role === UserRole.DOCTOR && appointment.doctorId !== actor.doctorId) {
+      throw new ForbiddenException('Solo puedes cancelar citas de tu propia agenda.');
+    }
+    if (![UserRole.PATIENT, UserRole.DOCTOR, UserRole.ADMIN].includes(actor.role)) {
       throw new ForbiddenException('No tienes permiso para gestionar esta cita.');
     }
   }
@@ -199,7 +239,8 @@ export class AppointmentsService {
       .select([
         'appointment.id AS id', 'appointment.workDate AS date', 'appointment.startTime AS "startTime"',
         'appointment.endTime AS "endTime"', 'appointment.status AS status', 'appointment.reason AS reason',
-        'appointment.cancellationReason AS "cancellationReason"', 'appointment.slotId AS "slotId"',
+        'appointment.cancellationReason AS "cancellationReason"', 'appointment.cancellationSource AS "cancellationSource"',
+        'appointment.slotId AS "slotId"',
         'patient.documentId AS "patientDocument"', 'patient.firstName AS "patientFirstName"',
         'patient.lastName AS "patientLastName"', 'doctor.id AS "doctorId"', 'doctor.specialty AS specialty',
         'doctorUser.firstName AS "doctorFirstName"', 'doctorUser.lastName AS "doctorLastName"', 'slot.room AS "defaultRoom"',

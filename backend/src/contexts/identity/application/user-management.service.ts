@@ -1,8 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { hash } from 'bcryptjs';
 import { Repository } from 'typeorm';
-import { CreateReceptionistDto } from '../../../apps/admin/http/dto/admin.dto';
 import { DoctorOrmEntity, EpsPatientOrmEntity, UserOrmEntity } from '../../shared/infrastructure/database/entities';
 import { UserRole } from '../domain/role';
 
@@ -15,29 +13,15 @@ export class UserManagementService {
   ) {}
 
   async listUsers() {
-    const users = await this.users.find({ order: { createdAt: 'DESC' } });
+    const users = await this.users.find({
+      where: [
+        { role: UserRole.PATIENT },
+        { role: UserRole.DOCTOR },
+        { role: UserRole.ADMIN },
+      ],
+      order: { createdAt: 'DESC' },
+    });
     return users.map(({ passwordHash: _secret, ...user }) => user);
-  }
-
-  async createReceptionist(input: CreateReceptionistDto) {
-    const documentId = input.documentId.trim();
-    const email = input.email.trim().toLowerCase();
-    if (await this.users.findOne({ where: [{ documentId }, { email }] })) {
-      throw new ConflictException('La cédula o el correo ya están registrados.');
-    }
-    const user = await this.users.save(this.users.create({
-      documentId,
-      email,
-      passwordHash: await hash(input.password, 12),
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
-      phone: null,
-      birthDate: null,
-      role: UserRole.RECEPTIONIST,
-      active: true,
-    }));
-    const { passwordHash: _secret, ...publicUser } = user;
-    return publicUser;
   }
 
   async setUserActive(id: string, active: boolean, actorId: string) {

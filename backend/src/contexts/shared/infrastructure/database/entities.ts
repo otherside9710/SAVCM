@@ -110,6 +110,7 @@ export class AppointmentOrmEntity {
   @Column({ type: 'varchar', length: 20, default: AppointmentStatus.SCHEDULED }) status!: AppointmentStatus;
   @Column({ type: 'varchar', length: 500, nullable: true }) reason!: string | null;
   @Column({ type: 'varchar', length: 500, nullable: true }) cancellationReason!: string | null;
+  @Column({ type: 'varchar', length: 20, nullable: true }) cancellationSource!: 'DOCTOR' | 'PATIENT' | 'STAFF' | null;
   @CreateDateColumn({ type: 'timestamptz' }) createdAt!: Date;
   @UpdateDateColumn({ type: 'timestamptz' }) updatedAt!: Date;
 }

@@ -6,7 +6,7 @@
 - API en NestJS organizada por contextos, con PostgreSQL como persistencia.
 - Padrón inicial de cédulas: el registro público se rechaza si la cédula no está activa.
 - Administración del padrón EPS y activación o suspensión de cuentas desde el rol administrador.
-- Roles de paciente, médico, recepción y administración.
+- Roles de paciente, médico y administración.
 - Agendamiento con protección ante solicitudes simultáneas y citas duplicadas.
 - Reprogramación, cancelación, agenda médica, creación de franjas y reporte de indicadores.
 - Diagrama Mermaid alineado con los requerimientos y excepciones de la ficha.

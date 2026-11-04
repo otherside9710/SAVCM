@@ -52,9 +52,8 @@ Las cuentas de personal se crean solo cuando `DEMO_SEED=true`:
 | --- | --- | --- |
 | Administrador | admin@savcm.local | Admin123! |
 | Médico general | doctor@savcm.local | Doctor123! |
-| Recepción | recepcion@savcm.local | Recepcion123! |
 
-El entorno de demostración también crea diez médicos adicionales (`medico01@savcm.local` a `medico10@savcm.local`), con contraseña `DEMO_DOCTOR_PASSWORD` o `Doctor123!` si no se configura. Cada uno tiene agenda de lunes a viernes para los próximos 30 días, en bloques de 30 minutos de 08:00–12:00 y 13:00–16:00, en consultorios 2–11.
+El entorno de demostración también crea cuatro médicos adicionales (`medico01@savcm.local`, `medico02@savcm.local`, `medico03@savcm.local` y `medico06@savcm.local`), con contraseña `DEMO_DOCTOR_PASSWORD` o `Doctor123!` si no se configura. Cada uno tiene agenda de lunes a viernes para los próximos 30 días.
 
 Para probar el registro, usa una cédula ficticia incluida en `backend/data/eps-patient-roster.json`: `1000000001`, `1000000002` o `1000000003`. Completa nombre, apellido, correo y contraseña. Las demás cédulas se rechazan.
 
@@ -84,7 +83,7 @@ Rutas públicas: `POST /api/auth/forgot-password` recibe `{ "email": "..." }` y 
 
 ## Funcionalidades implementadas
 
-- Registro de pacientes y autenticación de paciente, médico, recepción y administrador.
+- Registro de pacientes y autenticación de paciente, médico y administrador.
 - Consulta de disponibilidad por fecha y médico.
 - Agendamiento, historial, cancelación y reprogramación de citas.
 - Restricción de duplicidad por paciente y médico con transacciones e índices únicos de PostgreSQL.
@@ -107,13 +106,13 @@ Rutas públicas: `POST /api/auth/forgot-password` recibe `{ "email": "..." }` y 
 | POST | `/api/schedules` | Administrador |
 | PATCH | `/api/schedules/:id/active` | Administrador |
 | GET | `/api/schedules/my?from=AAAA-MM-DD&to=AAAA-MM-DD` | Médico |
-| POST | `/api/appointments` | Paciente, recepción o administrador |
-| GET | `/api/appointments` | Lista propia para paciente/médico; todas para recepción/admin |
-| PATCH | `/api/appointments/:id/cancel` | Propietario, recepción o administrador |
-| PATCH | `/api/appointments/:id/reschedule` | Propietario, recepción o administrador |
-| PATCH | `/api/appointments/:id/status` | Médico de la agenda, recepción o administrador |
+| POST | `/api/appointments` | Paciente o administrador |
+| GET | `/api/appointments` | Lista propia para paciente/médico; todas para admin |
+| PATCH | `/api/appointments/:id/cancel` | Propietario, médico de la agenda o administrador |
+| PATCH | `/api/appointments/:id/reschedule` | Propietario o administrador |
+| PATCH | `/api/appointments/:id/status` | Médico de la agenda o administrador |
 | GET | `/api/reports?from=AAAA-MM-DD&to=AAAA-MM-DD` | Administrador |
-| GET / POST | `/api/admin/users`, `/api/admin/users/receptionists` | Administrador |
+| GET | `/api/admin/users` | Administrador |
 | PATCH | `/api/admin/users/:id/active` | Administrador |
 | GET / POST | `/api/admin/eps-roster` | Administrador |
 | PATCH | `/api/admin/eps-roster/:documentId/active` | Administrador |

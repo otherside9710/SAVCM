@@ -26,13 +26,13 @@ export class AppointmentsController {
   }
 
   @Post()
-  @Roles(UserRole.PATIENT, UserRole.RECEPTIONIST, UserRole.ADMIN)
+  @Roles(UserRole.PATIENT, UserRole.ADMIN)
   create(@Body() input: CreateAppointmentDto, @CurrentUser() user: AuthenticatedUser) {
     return this.appointments.create(input, user);
   }
 
   @Patch(':id/cancel')
-  @Roles(UserRole.PATIENT, UserRole.RECEPTIONIST, UserRole.ADMIN)
+  @Roles(UserRole.PATIENT, UserRole.DOCTOR, UserRole.ADMIN)
   cancel(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: CancelAppointmentDto,
@@ -40,7 +40,7 @@ export class AppointmentsController {
   ) { return this.appointments.cancel(id, input.reason, user); }
 
   @Patch(':id/reschedule')
-  @Roles(UserRole.PATIENT, UserRole.RECEPTIONIST, UserRole.ADMIN)
+  @Roles(UserRole.PATIENT, UserRole.ADMIN)
   reschedule(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: RescheduleAppointmentDto,
@@ -48,7 +48,7 @@ export class AppointmentsController {
   ) { return this.appointments.reschedule(id, input.slotId, user); }
 
   @Patch(':id/status')
-  @Roles(UserRole.DOCTOR, UserRole.RECEPTIONIST, UserRole.ADMIN)
+  @Roles(UserRole.DOCTOR, UserRole.ADMIN)
   changeStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: ChangeAppointmentStatusDto,
