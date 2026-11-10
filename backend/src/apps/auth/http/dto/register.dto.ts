@@ -1,4 +1,4 @@
-import { IsDateString, IsEmail, IsIn, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsDateString, IsEmail, IsIn, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class RegisterDto {
   @IsIn(['CC']) documentType!: 'CC';
@@ -8,5 +8,4 @@ export class RegisterDto {
   @IsEmail() @MaxLength(254) email!: string;
   @IsString() @Matches(/^\+?[0-9 ()-]{7,20}$/) phone!: string;
   @IsDateString() birthDate!: string;
-  @IsString() @MinLength(8) @MaxLength(72) password!: string;
 }

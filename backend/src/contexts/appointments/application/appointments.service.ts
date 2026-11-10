@@ -13,7 +13,7 @@ import { AuthenticatedUser, UserRole } from '../../identity/domain/role';
 import { AppointmentStatus } from '../domain/appointment-status';
 import { AppointmentOrmEntity, DoctorOrmEntity, ScheduleSlotOrmEntity, UserOrmEntity } from '../../shared/infrastructure/database/entities';
 import { CreateAppointmentDto } from '../../../apps/appointments/http/dto/create-appointment.dto';
-import { colombiaDate, colombiaTime } from '../../shared/domain/colombia-time';
+import { colombiaDate, colombiaTime, minutesUntilColombiaDateTime } from '../../shared/domain/colombia-time';
 import { APPOINTMENT_CANCELLATION_NOTIFIER, AppointmentCancellationNotifier } from './appointment-cancellation-notifier.port';
 
 @Injectable()
@@ -88,6 +88,9 @@ export class AppointmentsService {
       });
       if (!appointment) throw new NotFoundException('No encontramos la cita solicitada.');
       this.assertCanManage(appointment, actor);
+      if (actor.role === UserRole.PATIENT && minutesUntilColombiaDateTime(appointment.workDate, appointment.startTime) < 120) {
+        throw new BadRequestException('Solo puedes cancelar una cita con al menos 2 horas de anticipación.');
+      }
       const doctorCanCancelRescheduled = actor.role === UserRole.DOCTOR && appointment.status === AppointmentStatus.RESCHEDULED;
       if (appointment.status !== AppointmentStatus.SCHEDULED && !doctorCanCancelRescheduled) {
         throw new ConflictException('Solo se pueden cancelar citas agendadas o reprogramadas de tu agenda.');

@@ -52,6 +52,7 @@ export class AuthService {
     }
     const existing = await this.users.findOne({ where: [{ documentId }, { email }] });
     if (existing) throw new ConflictException('La cédula o el correo ya tienen una cuenta registrada.');
+    this.assertPasswordSetupReady();
 
     let user: UserOrmEntity;
     try {
@@ -59,7 +60,7 @@ export class AuthService {
         documentType: input.documentType,
         documentId,
         email,
-        passwordHash: await hash(input.password, 12),
+        passwordHash: await hash(randomBytes(32).toString('base64url'), 12),
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
         phone: input.phone.trim(),
@@ -73,7 +74,12 @@ export class AuthService {
       }
       throw error;
     }
-    return this.createSession(user);
+    const emailSent = await this.sendPasswordSetupForUser(user);
+    return {
+      message: emailSent
+        ? 'Cuenta creada. Revisa tu correo y sigue el enlace para establecer tu contraseña; vence en 30 minutos.'
+        : 'Cuenta creada, pero no se pudo enviar el enlace. Usa “¿Olvidaste tu contraseña?” para solicitar uno nuevo.',
+    };
   }
 
   async login(input: LoginDto) {
@@ -113,14 +119,23 @@ export class AuthService {
     return this.publicUser(user, doctor?.id);
   }
 
-  async requestPasswordReset(input: RequestPasswordResetDto) {
+  assertPasswordSetupReady() {
     this.passwordResetEmail.assertReady();
-    let appBaseUrl: URL;
     try {
-      appBaseUrl = new URL(this.config.get<string>('APP_BASE_URL', 'http://localhost:5173'));
+      new URL(this.config.get<string>('APP_BASE_URL', 'http://localhost:5173'));
     } catch {
       throw new ServiceUnavailableException('La URL pública de la aplicación no está configurada correctamente.');
     }
+  }
+
+  async sendPasswordSetup(userId: string) {
+    this.assertPasswordSetupReady();
+    const user = await this.users.findOneBy({ id: userId, role: UserRole.PATIENT, active: true });
+    return user ? this.sendPasswordSetupForUser(user) : false;
+  }
+
+  async requestPasswordReset(input: RequestPasswordResetDto) {
+    this.assertPasswordSetupReady();
     const user = await this.users.findOneBy({ email: input.email.trim().toLowerCase(), active: true });
     if (!user) return { message: PASSWORD_RESET_RESPONSE };
 
@@ -133,6 +148,19 @@ export class AuthService {
       return { message: PASSWORD_RESET_RESPONSE };
     }
 
+    await this.sendPasswordSetupForUser(user);
+    return { message: PASSWORD_RESET_RESPONSE };
+  }
+
+  private async sendPasswordSetupForUser(user: UserOrmEntity) {
+    let appBaseUrl: URL;
+    try {
+      appBaseUrl = new URL(this.config.get<string>('APP_BASE_URL', 'http://localhost:5173'));
+    } catch {
+      throw new ServiceUnavailableException('La URL pública de la aplicación no está configurada correctamente.');
+    }
+    const now = new Date();
+    const existing = await this.passwordResetTokens.findOneBy({ userId: user.id });
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const resetRecord = existing ?? this.passwordResetTokens.create({ userId: user.id });
@@ -144,7 +172,7 @@ export class AuthService {
       await this.passwordResetTokens.save(resetRecord);
     } catch (error) {
       if (error instanceof QueryFailedError && (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === '23505') {
-        return { message: PASSWORD_RESET_RESPONSE };
+        return false;
       }
       throw error;
     }
@@ -152,17 +180,18 @@ export class AuthService {
     const appUrl = new URL('/', appBaseUrl);
     appUrl.hash = `reset-password?token=${encodeURIComponent(token)}`;
     try {
-      await this.passwordResetEmail.sendPasswordReset({
+      const sent = await this.passwordResetEmail.sendPasswordReset({
         email: user.email,
         firstName: user.firstName,
         resetUrl: appUrl.toString(),
       });
+      if (!sent) await this.passwordResetTokens.delete({ userId: user.id, tokenHash });
+      return sent;
     } catch (error) {
       await this.passwordResetTokens.delete({ userId: user.id, tokenHash });
       this.logger.error('No se pudo enviar un correo de recuperación.');
+      return false;
     }
-
-    return { message: PASSWORD_RESET_RESPONSE };
   }
 
   async resetPassword(input: ResetPasswordDto) {

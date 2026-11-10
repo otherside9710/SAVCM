@@ -29,6 +29,6 @@ import { RolesGuard } from '../shared/http/guards/roles.guard';
     GmailPasswordResetEmailAdapter,
     { provide: PASSWORD_RESET_EMAIL, useExisting: GmailPasswordResetEmailAdapter },
   ],
-  exports: [JwtModule, JwtAuthGuard, RolesGuard],
+  exports: [AuthService, JwtModule, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}

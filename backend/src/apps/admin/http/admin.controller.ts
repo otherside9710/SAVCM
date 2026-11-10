@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UserManagementService } from '../../../contexts/identity/application/user-management.service';
 import { UserRole } from '../../../contexts/identity/domain/role';
 import { AuthenticatedUser } from '../../../contexts/identity/domain/role';
@@ -15,6 +16,12 @@ export class AdminController {
   constructor(private readonly management: UserManagementService) {}
 
   @Get('users') users() { return this.management.listUsers(); }
+  @Post('patients/import-csv')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  importPatientsCsv(@UploadedFile() file?: { buffer: Buffer }) {
+    if (!file) throw new BadRequestException('Adjunta un archivo CSV para importar.');
+    return this.management.importPatientsCsv(file.buffer.toString('utf8'));
+  }
   @Patch('users/:id/active') setUserActive(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: SetActiveDto,

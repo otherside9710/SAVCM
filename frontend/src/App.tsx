@@ -13,6 +13,7 @@ type Report = { totals: { total: number; scheduled: number; cancelled: number; r
 type AppointmentConfirmation = { kind: 'booked' | 'rescheduled' | 'cancelled'; appointment: Appointment };
 type ManagedUser = { id: string; documentId: string; email: string; firstName: string; lastName: string; role: Role; active: boolean };
 type RosterPatient = { documentId: string; active: boolean };
+type PatientCsvImportResult = { totalRows: number; created: number; skipped: number; setupLinksSent: number; setupLinkFailures: Array<{ row: number }>; errors: Array<{ row: number; message: string }> };
 type AuthMode = 'login' | 'register' | 'forgot' | 'reset';
 type PatientAppointmentView = 'upcoming' | 'history' | 'cancelled';
 type PatientNavItem = 'home' | 'booking' | 'appointments' | 'history' | 'profile';
@@ -31,7 +32,7 @@ const ADMIN_PAGE_COPY: Record<AdminPage, { title: string; description: string }>
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('savcm-token');
   const headers = new Headers(init.headers);
-  if (init.body) headers.set('Content-Type', 'application/json');
+  if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
   let response: Response;
   try {
@@ -129,6 +130,7 @@ function AuthScreen({ onSuccess, notice, setNotice, recoveryToken, onRecoveryCom
     setMode(nextMode);
     setNotice('');
     setSuccessMessage('');
+    setForm((current) => ({ ...current, password: '' }));
   }
 
   async function submit(event: FormEvent) {
@@ -145,12 +147,13 @@ function AuthScreen({ onSuccess, notice, setNotice, recoveryToken, onRecoveryCom
         setMode('login');
         onRecoveryComplete();
         setSuccessMessage('Contraseña actualizada. Ya puedes iniciar sesión.');
+      } else if (mode === 'login') {
+        onSuccess(await api<Session>('/auth/login', { method: 'POST', body: JSON.stringify({ identifier: form.identifier, password: form.password }) }));
       } else {
-        const route = mode === 'login' ? '/auth/login' : '/auth/register';
-        const body = mode === 'login'
-          ? { identifier: form.identifier, password: form.password }
-          : { documentType: 'CC', documentId: form.documentId, firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone, birthDate: form.birthDate, password: form.password };
-        onSuccess(await api<Session>(route, { method: 'POST', body: JSON.stringify(body) }));
+        const result = await api<{ message: string }>('/auth/register', { method: 'POST', body: JSON.stringify({ documentType: 'CC', documentId: form.documentId, firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone, birthDate: form.birthDate }) });
+        setForm((current) => ({ ...current, identifier: current.email, password: '' }));
+        setSuccessMessage(result.message);
+        setMode('login');
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'No se pudo completar la solicitud.');
@@ -161,7 +164,7 @@ function AuthScreen({ onSuccess, notice, setNotice, recoveryToken, onRecoveryCom
     : mode === 'register' ? 'Crea tu cuenta'
       : mode === 'forgot' ? 'Recupera tu contraseña' : 'Crea una contraseña nueva';
   const description = mode === 'login' ? 'Ingresa con la cédula o el correo registrado.'
-    : mode === 'register' ? 'El registro está disponible para pacientes activos de la EPS.'
+    : mode === 'register' ? 'El registro está disponible para pacientes activos de la EPS. Te enviaremos un enlace para crear tu contraseña.'
       : mode === 'forgot' ? 'Te enviaremos un enlace al correo asociado a tu cuenta.'
         : 'Elige una contraseña de al menos 8 caracteres.';
 
@@ -203,11 +206,11 @@ function AuthScreen({ onSuccess, notice, setNotice, recoveryToken, onRecoveryCom
             </>}
           {notice && <div className="notice error" role="alert">{notice}</div>}
           {successMessage && <div className="notice success" role="status">{successMessage}</div>}
-          <button className="button primary full" type="submit" disabled={busy}>{busy ? 'Un momento…' : mode === 'login' ? 'Ingresar al portal' : mode === 'register' ? 'Crear cuenta' : mode === 'forgot' ? 'Enviar enlace de recuperación' : 'Guardar nueva contraseña'}</button>
+          <button className="button primary full" type="submit" disabled={busy}>{busy ? 'Un momento…' : mode === 'login' ? 'Ingresar al portal' : mode === 'register' ? 'Crear cuenta y enviar enlace' : mode === 'forgot' ? 'Enviar enlace de recuperación' : 'Guardar nueva contraseña'}</button>
         </form>
         {(mode === 'login' || mode === 'register') && <>
           <div className="demo-hint"><strong>Entorno de demostración</strong><span>El padrón incluye cédulas ficticias de prueba. Consulta las cuentas de cada rol en el README.</span></div>
-          <p className="privacy-note">Tus credenciales se almacenan protegidas y solo pacientes registrados en el padrón pueden crear una cuenta.</p>
+          <p className="privacy-note">Solo pacientes registrados en el padrón pueden crear una cuenta. La contraseña se establece desde un enlace seguro enviado al correo.</p>
         </>}
       </div>
     </section>
@@ -442,17 +445,20 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
           </div>}
           {user.role === 'DOCTOR' && <div className="doctor-agenda-filter"><label>Fecha de inicio<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><div className="range-toggle"><button className={doctorRange === 'day' ? 'active' : ''} onClick={() => setDoctorRange('day')}>Día</button><button className={doctorRange === 'week' ? 'active' : ''} onClick={() => setDoctorRange('week')}>Semana</button><button className={doctorRange === 'upcoming' ? 'active' : ''} onClick={() => setDoctorRange('upcoming')}>Próximas 30 días</button></div></div>}
           {user.role === 'ADMIN' && <div className="admin-appointment-filters"><label>Desde<input type="date" value={adminAppointmentFrom} onChange={(event) => setAdminAppointmentFrom(event.target.value)} /></label><label>Hasta<input type="date" value={adminAppointmentTo} onChange={(event) => setAdminAppointmentTo(event.target.value)} /></label><label>Médico<select value={adminAppointmentDoctor} onChange={(event) => setAdminAppointmentDoctor(event.target.value)}><option value="">Todos los médicos</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name}</option>)}</select></label><label>Estado<select value={adminAppointmentStatus} onChange={(event) => setAdminAppointmentStatus(event.target.value)}><option value="ALL">Todos</option><option value="SCHEDULED">Agendada</option><option value="RESCHEDULED">Reprogramada</option><option value="CANCELLED">Cancelada</option><option value="COMPLETED">Realizada</option><option value="NO_SHOW">No asistió</option></select></label><label className="admin-appointment-search">Paciente o cédula<input value={adminAppointmentSearch} onChange={(event) => setAdminAppointmentSearch(event.target.value)} placeholder="Buscar paciente" /></label><span className="admin-results-count">{adminVisibleAppointments.length} citas</span></div>}
-          {displayedAppointments.length === 0 ? <div className={`empty-state compact ${user.role === 'DOCTOR' ? 'doctor-empty-state' : ''}`}><span className="empty-icon">▤</span><strong>{user.role === 'ADMIN' ? 'No hay citas con esos filtros' : isPatient && patientAppointmentView === 'cancelled' ? 'No hay citas canceladas' : isPatient && patientAppointmentView === 'history' ? 'Aún no tienes citas anteriores' : user.role === 'DOCTOR' ? 'Tu agenda está despejada' : 'Aún no hay citas'}</strong><p>{user.role === 'DOCTOR' ? `No hay pacientes programados ${doctorRange === 'day' ? 'para esta fecha' : doctorRange === 'week' ? 'esta semana' : 'en los próximos 30 días'}. Prueba con otro periodo.` : user.role === 'ADMIN' ? 'Amplía el periodo o cambia los filtros para ver otros resultados.' : isPatient && patientAppointmentView === 'upcoming' ? 'Tu próxima reserva aparecerá aquí con todos sus detalles.' : isPatient ? 'Cuando haya citas en esta sección, aparecerán aquí.' : 'Aquí verás las citas registradas en el sistema.'}</p>{isPatient && patientAppointmentView === 'upcoming' && <button className="empty-action" onClick={() => navigatePatient('booking')}>Agendar mi primera cita <span aria-hidden="true">→</span></button>}{user.role === 'DOCTOR' && <button className="empty-action" onClick={() => setDate(today())}>Volver a hoy <span aria-hidden="true">→</span></button>}</div> : <div className="appointment-list">{displayedAppointments.map((appointment) => <div className={`appointment-item ${user.role === 'DOCTOR' ? 'doctor-appointment-item' : ''}`} key={appointment.id}>
+          {displayedAppointments.length === 0 ? <div className={`empty-state compact ${user.role === 'DOCTOR' ? 'doctor-empty-state' : ''}`}><span className="empty-icon">▤</span><strong>{user.role === 'ADMIN' ? 'No hay citas con esos filtros' : isPatient && patientAppointmentView === 'cancelled' ? 'No hay citas canceladas' : isPatient && patientAppointmentView === 'history' ? 'Aún no tienes citas anteriores' : user.role === 'DOCTOR' ? 'Tu agenda está despejada' : 'Aún no hay citas'}</strong><p>{user.role === 'DOCTOR' ? `No hay pacientes programados ${doctorRange === 'day' ? 'para esta fecha' : doctorRange === 'week' ? 'esta semana' : 'en los próximos 30 días'}. Prueba con otro periodo.` : user.role === 'ADMIN' ? 'Amplía el periodo o cambia los filtros para ver otros resultados.' : isPatient && patientAppointmentView === 'upcoming' ? 'Tu próxima reserva aparecerá aquí con todos sus detalles.' : isPatient ? 'Cuando haya citas en esta sección, aparecerán aquí.' : 'Aquí verás las citas registradas en el sistema.'}</p>{isPatient && patientAppointmentView === 'upcoming' && <button className="empty-action" onClick={() => navigatePatient('booking')}>Agendar mi primera cita <span aria-hidden="true">→</span></button>}{user.role === 'DOCTOR' && <button className="empty-action" onClick={() => setDate(today())}>Volver a hoy <span aria-hidden="true">→</span></button>}</div> : <div className="appointment-list">{displayedAppointments.map((appointment) => {
+            const cancellationTooLate = user.role === 'PATIENT' && minutesUntilAppointment(appointment) < 120;
+            return <div className={`appointment-item ${user.role === 'DOCTOR' ? 'doctor-appointment-item' : ''}`} key={appointment.id}>
             <div className="appointment-date"><strong>{dateKey(appointment.date).slice(8, 10) || '—'}</strong><span>{monthShort(appointment.date)}</span></div>
             <div className="appointment-info"><div className="appointment-line"><strong>{user.role === 'DOCTOR' ? appointment.startTime.slice(0, 5) : `${appointment.startTime.slice(0, 5)} · ${appointment.patientFirstName} ${appointment.patientLastName}`}</strong><StatusPill status={appointment.status} cancellationSource={appointment.cancellationSource} isPatient={isPatient} /></div><span>{user.role === 'DOCTOR' ? `Paciente · ${appointment.patientFirstName} ${appointment.patientLastName}` : `${appointment.doctorFirstName} ${appointment.doctorLastName} · Medicina General`}</span><small>Cédula {appointment.patientDocument}{appointment.defaultRoom ? ` · ${appointment.defaultRoom}` : ''}</small>
               {isPatient && appointment.status === 'CANCELLED' && (appointment.cancellationReason || appointment.cancellationSource) && <div className={`patient-cancellation-message ${appointment.cancellationSource === 'DOCTOR' ? 'by-doctor' : ''}`}><strong>{appointment.cancellationSource === 'DOCTOR' ? 'Tu médico canceló esta cita' : appointment.cancellationSource === 'PATIENT' ? 'Cancelaste esta cita' : appointment.cancellationSource === 'STAFF' ? 'Cita cancelada por SAVCM' : 'Motivo informado'}</strong>{appointment.cancellationReason && <span>{appointment.cancellationReason}</span>}</div>}
               <div className="appointment-actions">
-                {(user.role === 'PATIENT' || isAppointmentManager) && appointment.status === 'SCHEDULED' && <><button onClick={() => openReschedule(appointment)}>Reprogramar</button><button className="danger-link" onClick={() => { setCancellationTarget(appointment); setCancellationReason(''); setCancellationError(''); }}>Cancelar</button></>}
+                {(user.role === 'PATIENT' || isAppointmentManager) && appointment.status === 'SCHEDULED' && <><button onClick={() => openReschedule(appointment)}>Reprogramar</button><button className="danger-link" disabled={cancellationTooLate} title={cancellationTooLate ? 'La cancelación debe hacerse con al menos 2 horas de anticipación.' : undefined} onClick={() => { setCancellationTarget(appointment); setCancellationReason(''); setCancellationError(''); }}>Cancelar</button>{cancellationTooLate && <small className="cancellation-window-note">Disponible hasta 2 horas antes de la cita</small>}</>}
                 {user.role === 'DOCTOR' && appointment.status === 'SCHEDULED' && <>{appointmentTimePassed(appointment) && <><button onClick={() => void setAppointmentStatus(appointment, 'COMPLETED')}>Marcar realizada</button><button onClick={() => void setAppointmentStatus(appointment, 'NO_SHOW')}>No asistió</button></>}<button className="danger-link" onClick={() => { setCancellationTarget(appointment); setCancellationReason(''); setCancellationError(''); }}>Cancelar y avisar</button></>}
                 {user.role === 'DOCTOR' && appointment.status === 'RESCHEDULED' && <button className="danger-link" onClick={() => { setCancellationTarget(appointment); setCancellationReason(''); setCancellationError(''); }}>Cancelar y avisar</button>}
               </div>
             </div>
-          </div>)}</div>}
+          </div>;
+          })}</div>}
         </article>
   );
   const title = user.role === 'DOCTOR' ? 'Agenda asistencial' : user.role === 'ADMIN' ? 'Centro de control' : 'Mis citas';
@@ -664,6 +670,9 @@ function AdminTools({ activePage, appointments, doctors, onDoctorsChanged, onSch
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
   const [roster, setRoster] = useState<RosterPatient[]>([]);
   const [rosterDocument, setRosterDocument] = useState('');
+  const [patientCsvFile, setPatientCsvFile] = useState<File | null>(null);
+  const [patientCsvResult, setPatientCsvResult] = useState<PatientCsvImportResult | null>(null);
+  const patientCsvInput = useRef<HTMLInputElement | null>(null);
   const [patientSearch, setPatientSearch] = useState('');
   const [agendaFrom, setAgendaFrom] = useState(today());
   const [agendaTo, setAgendaTo] = useState(() => addDays(today(), 29));
@@ -732,6 +741,31 @@ function AdminTools({ activePage, appointments, doctors, onDoctorsChanged, onSch
   async function addRosterPatient(event: FormEvent) {
     event.preventDefault(); await addRosterDocument(rosterDocument); setRosterDocument('');
   }
+  function downloadPatientCsvTemplate() {
+    const csv = '\uFEFFcedula;nombres;apellidos;correo;telefono;fecha_nacimiento\r\n';
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'plantilla-pacientes-savcm.csv';
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function importPatientCsv(event: FormEvent) {
+    event.preventDefault();
+    if (!patientCsvFile) { setError('Selecciona primero un archivo CSV.'); return; }
+    setBusy(true); setError(''); setMessage(''); setPatientCsvResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', patientCsvFile);
+      const result = await api<PatientCsvImportResult>('/admin/patients/import-csv', { method: 'POST', body: formData });
+      setPatientCsvResult(result);
+      const [updatedUsers, updatedRoster] = await Promise.all([api<ManagedUser[]>('/admin/users'), api<RosterPatient[]>('/admin/eps-roster')]);
+      setManagedUsers(updatedUsers); setRoster(updatedRoster);
+      setMessage(`Importación lista: ${result.created} pacientes creados${result.skipped ? ` y ${result.skipped} filas omitidas` : ''}.`);
+      if (result.created) { setPatientCsvFile(null); if (patientCsvInput.current) patientCsvInput.current.value = ''; }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo importar el archivo.'); }
+    finally { setBusy(false); }
+  }
   async function changeRosterStatus(patient: RosterPatient) {
     try {
       await api(`/admin/eps-roster/${patient.documentId}/active`, { method: 'PATCH', body: JSON.stringify({ active: !patient.active }) });
@@ -798,6 +832,16 @@ function AdminTools({ activePage, appointments, doctors, onDoctorsChanged, onSch
     </div>}
     {activePage === 'patients' && <div className="admin-page-body">
     <div className="admin-grid management-grid">
+      <article className="card admin-card patient-import-card">
+        <div className="section-heading"><div><p className="eyebrow">IMPORTACIÓN MASIVA</p><h2>Crear pacientes desde CSV</h2><p className="section-subtitle">Descarga la plantilla, agrega una fila por paciente y súbela para crear sus cuentas.</p></div><span className="icon-bubble" aria-hidden="true">⇩</span></div>
+        <div className="patient-import-columns"><code>cedula · nombres · apellidos · correo · telefono · fecha_nacimiento</code><span>Usa fecha AAAA-MM-DD. Cada cuenta creada recibe por correo un enlace de un solo uso para establecer su propia contraseña. Se aceptan separadores coma o punto y coma, hasta 500 pacientes.</span></div>
+        <form className="patient-import-form" onSubmit={(event) => void importPatientCsv(event)}>
+          <button type="button" className="button secondary" onClick={downloadPatientCsvTemplate}>Descargar plantilla CSV</button>
+          <label className="patient-csv-file">Archivo CSV<input ref={patientCsvInput} required type="file" accept=".csv,text/csv" onChange={(event) => { setPatientCsvFile(event.target.files?.[0] ?? null); setPatientCsvResult(null); }} /></label>
+          <button className="button primary" disabled={busy || !patientCsvFile}>{busy ? 'Importando…' : 'Importar pacientes'}</button>
+        </form>
+        {patientCsvResult && <div className="patient-import-result" role="status"><strong>{patientCsvResult.created} creados · {patientCsvResult.skipped} omitidos de {patientCsvResult.totalRows} filas · {patientCsvResult.setupLinksSent} enlaces para crear contraseña enviados</strong>{patientCsvResult.setupLinkFailures.length > 0 && <p>No se enviaron los enlaces de las filas {patientCsvResult.setupLinkFailures.map((item) => item.row).join(', ')}. Indícales usar “¿Olvidaste tu contraseña?” para solicitar otro.</p>}{patientCsvResult.errors.length > 0 && <ul>{patientCsvResult.errors.map((item, index) => <li key={`${item.row}-${index}`}>Fila {item.row}: {item.message}</li>)}</ul>}</div>}
+      </article>
       <article className="card admin-card" id="admin-roster"><div className="section-heading"><div><p className="eyebrow">06 · VALIDACIÓN EPS</p><h2>Padrón de cédulas</h2></div><span className="icon-bubble">⌕</span></div>
         <form className="roster-form" onSubmit={(event) => void addRosterPatient(event)}><label>Nueva cédula autorizada<input required inputMode="numeric" value={rosterDocument} onChange={(event) => setRosterDocument(event.target.value)} /></label><button className="button secondary">Agregar</button></form>
         <div className="management-list">{roster.map((patient) => <div className="management-row" key={patient.documentId}><span>{patient.documentId}</span><span className={patient.active ? 'active-label' : 'inactive-label'}>{patient.active ? 'Activa' : 'Inactiva'}</span><button onClick={() => void changeRosterStatus(patient)}>{patient.active ? 'Desactivar' : 'Activar'}</button></div>)}</div>
@@ -840,6 +884,21 @@ function appointmentTimePassed(appointment: Pick<Appointment, 'date' | 'endTime'
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return false;
   date.setHours(hours, minutes, 0, 0);
   return date.getTime() <= Date.now();
+}
+function minutesUntilAppointment(appointment: Pick<Appointment, 'date' | 'startTime'>) {
+  const date = dateKey(appointment.date);
+  const time = appointment.startTime.match(/^(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !time) return Number.NEGATIVE_INFINITY;
+  const [year, month, day] = date.split('-').map(Number);
+  const hours = Number(time[1]); const minutes = Number(time[2]); const seconds = Number(time[3] || 0);
+  const normalizedDate = new Date(Date.UTC(year, month - 1, day));
+  if (normalizedDate.toISOString().slice(0, 10) !== date || hours > 23 || minutes > 59 || seconds > 59) return Number.NEGATIVE_INFINITY;
+  const currentInstant = new Date();
+  const nowParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(currentInstant);
+  const now = Object.fromEntries(nowParts.map((part) => [part.type, part.value]));
+  const currentWallClock = Date.UTC(Number(now.year), Number(now.month) - 1, Number(now.day), Number(now.hour), Number(now.minute), Number(now.second)) + currentInstant.getMilliseconds();
+  const appointmentWallClock = Date.UTC(year, month - 1, day, hours, minutes, seconds);
+  return (appointmentWallClock - currentWallClock) / 60_000;
 }
 function parseLocalDate(value: string | null | undefined) {
   const key = dateKey(value);

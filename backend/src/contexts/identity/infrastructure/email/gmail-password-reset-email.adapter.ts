@@ -21,7 +21,7 @@ export class GmailPasswordResetEmailAdapter implements PasswordResetEmailPort {
     const appPassword = this.config.get<string>('GMAIL_APP_PASSWORD');
     if (!gmailUser || !appPassword) {
       this.logger.warn(`Gmail no está configurado; enlace local de recuperación: ${input.resetUrl}`);
-      return;
+      return false;
     }
 
     const greetingName = this.escapeHtml(input.firstName);
@@ -37,10 +37,11 @@ export class GmailPasswordResetEmailAdapter implements PasswordResetEmailPort {
     await transporter.sendMail({
       from: { name: 'SAVCM', address: gmailUser },
       to: input.email,
-      subject: 'Recupera tu contraseña de SAVCM',
-      text: `Hola ${input.firstName}, recibimos una solicitud para cambiar tu contraseña. Abre este enlace antes de 30 minutos: ${input.resetUrl}. Si no solicitaste el cambio, ignora este correo.`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#203c33"><h1 style="color:#126b58">Recuperar contraseña</h1><p>Hola ${greetingName}, recibimos una solicitud para cambiar la contraseña de tu cuenta SAVCM.</p><p><a href="${safeUrl}" style="display:inline-block;background:#126b58;color:#fff;padding:13px 20px;border-radius:8px;text-decoration:none">Crear nueva contraseña</a></p><p>El enlace vence en 30 minutos y solo se puede usar una vez.</p><p>Si no solicitaste este cambio, ignora este correo. Tu contraseña actual seguirá funcionando.</p></div>`,
+      subject: 'Crea o cambia tu contraseña de SAVCM',
+      text: `Hola ${input.firstName}, usa este enlace para establecer o cambiar la contraseña de tu cuenta SAVCM. El enlace vence en 30 minutos y solo se puede usar una vez: ${input.resetUrl}. Si no solicitaste el enlace, puedes ignorar este correo.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#203c33"><h1 style="color:#126b58">Establece tu contraseña</h1><p>Hola ${greetingName}, usa este enlace para crear o cambiar la contraseña de tu cuenta SAVCM.</p><p><a href="${safeUrl}" style="display:inline-block;background:#126b58;color:#fff;padding:13px 20px;border-radius:8px;text-decoration:none">Crear contraseña</a></p><p>El enlace vence en 30 minutos y solo se puede usar una vez.</p><p>Si no solicitaste este enlace, puedes ignorar este correo.</p></div>`,
     });
+    return true;
   }
 
   private escapeHtml(value: string) {
