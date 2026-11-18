@@ -83,7 +83,7 @@ Rutas públicas: `POST /api/auth/forgot-password` recibe `{ "email": "..." }` y 
 
 ## Funcionalidades implementadas
 
-- Registro de pacientes y autenticación de paciente, médico y administrador.
+- Alta de pacientes por carga masiva Excel/CSV con correo para crear su contraseña; autenticación de paciente, médico y administrador.
 - Consulta de disponibilidad por fecha y médico.
 - Agendamiento, historial, cancelación y reprogramación de citas.
 - Restricción de duplicidad por paciente y médico con transacciones e índices únicos de PostgreSQL.
@@ -96,7 +96,6 @@ Rutas públicas: `POST /api/auth/forgot-password` recibe `{ "email": "..." }` y 
 
 | Método | Ruta | Acceso |
 | --- | --- | --- |
-| POST | `/api/auth/register` | Público; cédula activa en padrón |
 | POST | `/api/auth/login` | Público |
 | GET | `/api/auth/me` | Usuario autenticado |
 | GET | `/api/doctors` | Usuario autenticado |
@@ -114,6 +113,7 @@ Rutas públicas: `POST /api/auth/forgot-password` recibe `{ "email": "..." }` y 
 | GET | `/api/reports?from=AAAA-MM-DD&to=AAAA-MM-DD` | Administrador |
 | GET | `/api/admin/users` | Administrador |
 | PATCH | `/api/admin/users/:id/active` | Administrador |
+| POST | `/api/admin/patients/import` | Administrador; XLSX o CSV multipart |
 | GET / POST | `/api/admin/eps-roster` | Administrador |
 | PATCH | `/api/admin/eps-roster/:documentId/active` | Administrador |
 

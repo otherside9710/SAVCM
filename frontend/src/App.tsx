@@ -13,8 +13,8 @@ type Report = { totals: { total: number; scheduled: number; cancelled: number; r
 type AppointmentConfirmation = { kind: 'booked' | 'rescheduled' | 'cancelled'; appointment: Appointment };
 type ManagedUser = { id: string; documentId: string; email: string; firstName: string; lastName: string; role: Role; active: boolean };
 type RosterPatient = { documentId: string; active: boolean };
-type PatientCsvImportResult = { totalRows: number; created: number; skipped: number; setupLinksSent: number; setupLinkFailures: Array<{ row: number }>; errors: Array<{ row: number; message: string }> };
-type AuthMode = 'login' | 'register' | 'forgot' | 'reset';
+type PatientImportResult = { totalRows: number; created: number; skipped: number; setupLinksSent: number; setupLinkFailures: Array<{ row: number }>; errors: Array<{ row: number; message: string }> };
+type AuthMode = 'login' | 'forgot' | 'reset';
 type PatientAppointmentView = 'upcoming' | 'history' | 'cancelled';
 type PatientNavItem = 'home' | 'booking' | 'appointments' | 'history' | 'profile';
 type AdminPage = 'overview' | 'doctors' | 'schedules' | 'agendas' | 'patients' | 'appointments' | 'reports';
@@ -119,7 +119,7 @@ function AccessBlockedScreen({ onSignOut }: { onSignOut: () => void }) {
 function AuthScreen({ onSuccess, notice, setNotice, recoveryToken, onRecoveryComplete }: { onSuccess: (session: Session) => void; notice: string; setNotice: (value: string) => void; recoveryToken: string; onRecoveryComplete: () => void }) {
   const [mode, setMode] = useState<AuthMode>(recoveryToken ? 'reset' : 'login');
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ identifier: '', password: '', documentId: '', firstName: '', lastName: '', email: '', phone: '', birthDate: '' });
+  const [form, setForm] = useState({ identifier: '', password: '' });
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -147,13 +147,8 @@ function AuthScreen({ onSuccess, notice, setNotice, recoveryToken, onRecoveryCom
         setMode('login');
         onRecoveryComplete();
         setSuccessMessage('Contraseña actualizada. Ya puedes iniciar sesión.');
-      } else if (mode === 'login') {
-        onSuccess(await api<Session>('/auth/login', { method: 'POST', body: JSON.stringify({ identifier: form.identifier, password: form.password }) }));
       } else {
-        const result = await api<{ message: string }>('/auth/register', { method: 'POST', body: JSON.stringify({ documentType: 'CC', documentId: form.documentId, firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone, birthDate: form.birthDate }) });
-        setForm((current) => ({ ...current, identifier: current.email, password: '' }));
-        setSuccessMessage(result.message);
-        setMode('login');
+        onSuccess(await api<Session>('/auth/login', { method: 'POST', body: JSON.stringify({ identifier: form.identifier, password: form.password }) }));
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'No se pudo completar la solicitud.');
@@ -161,12 +156,10 @@ function AuthScreen({ onSuccess, notice, setNotice, recoveryToken, onRecoveryCom
   }
 
   const heading = mode === 'login' ? 'Bienvenido de nuevo'
-    : mode === 'register' ? 'Crea tu cuenta'
-      : mode === 'forgot' ? 'Recupera tu contraseña' : 'Crea una contraseña nueva';
+    : mode === 'forgot' ? 'Recupera tu contraseña' : 'Crea una contraseña nueva';
   const description = mode === 'login' ? 'Ingresa con la cédula o el correo registrado.'
-    : mode === 'register' ? 'El registro está disponible para pacientes activos de la EPS. Te enviaremos un enlace para crear tu contraseña.'
-      : mode === 'forgot' ? 'Te enviaremos un enlace al correo asociado a tu cuenta.'
-        : 'Elige una contraseña de al menos 8 caracteres.';
+    : mode === 'forgot' ? 'Te enviaremos un enlace al correo asociado a tu cuenta.'
+      : 'Elige una contraseña de al menos 8 caracteres.';
 
   return <main className={`auth-layout auth-${mode}`}>
     <section className="auth-intro">
@@ -183,19 +176,9 @@ function AuthScreen({ onSuccess, notice, setNotice, recoveryToken, onRecoveryCom
         <p className="eyebrow">PORTAL DE CITAS</p>
         <h2>{heading}</h2>
         <p className="muted">{description}</p>
-        {(mode === 'login' || mode === 'register') ? <div className="auth-tabs" role="tablist">
-          <button className={mode === 'login' ? 'active' : ''} onClick={() => changeMode('login')}>Iniciar sesión</button>
-          <button className={mode === 'register' ? 'active' : ''} onClick={() => changeMode('register')}>Registrarme</button>
-        </div> : <button className="auth-back" type="button" onClick={() => changeMode('login')}>← Volver a iniciar sesión</button>}
+        {mode !== 'login' && <button className="auth-back" type="button" onClick={() => changeMode('login')}>← Volver a iniciar sesión</button>}
         <form onSubmit={submit} className="form-stack">
-          {mode === 'register' ? <>
-            <label>Tipo de documento<select value="CC" disabled><option value="CC">CC · Cédula de ciudadanía</option></select></label>
-            <label>Cédula registrada en la EPS<input required inputMode="numeric" autoComplete="off" value={form.documentId} onChange={(e) => set('documentId', e.target.value)} placeholder="Número de documento" /></label>
-            <div className="form-row"><label>Nombres<input required minLength={2} value={form.firstName} onChange={(e) => set('firstName', e.target.value)} /></label><label>Apellidos<input required minLength={2} value={form.lastName} onChange={(e) => set('lastName', e.target.value)} /></label></div>
-            <label>Fecha de nacimiento<input required max={today()} type="date" value={form.birthDate} onChange={(e) => set('birthDate', e.target.value)} /></label>
-            <label>Correo electrónico<input type="email" required value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="nombre@correo.com" /></label>
-            <label>Teléfono<input required type="tel" value={form.phone} onChange={(e) => set('phone', e.target.value)} /></label>
-          </> : mode === 'login' ? <>
+          {mode === 'login' ? <>
             <label>Cédula o correo electrónico<input required autoComplete="username" value={form.identifier} onChange={(e) => set('identifier', e.target.value)} placeholder="Tu cédula o correo" /></label>
             <label>Contraseña<input required type="password" autoComplete="current-password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Tu contraseña" /></label>
             <button className="forgot-link" type="button" onClick={() => { setRecoveryEmail(form.identifier.includes('@') ? form.identifier : ''); changeMode('forgot'); }}>¿Olvidaste tu contraseña?</button>
@@ -206,11 +189,10 @@ function AuthScreen({ onSuccess, notice, setNotice, recoveryToken, onRecoveryCom
             </>}
           {notice && <div className="notice error" role="alert">{notice}</div>}
           {successMessage && <div className="notice success" role="status">{successMessage}</div>}
-          <button className="button primary full" type="submit" disabled={busy}>{busy ? 'Un momento…' : mode === 'login' ? 'Ingresar al portal' : mode === 'register' ? 'Crear cuenta y enviar enlace' : mode === 'forgot' ? 'Enviar enlace de recuperación' : 'Guardar nueva contraseña'}</button>
+          <button className="button primary full" type="submit" disabled={busy}>{busy ? 'Un momento…' : mode === 'login' ? 'Ingresar al portal' : mode === 'forgot' ? 'Enviar enlace de recuperación' : 'Guardar nueva contraseña'}</button>
         </form>
-        {(mode === 'login' || mode === 'register') && <>
-          <div className="demo-hint"><strong>Entorno de demostración</strong><span>El padrón incluye cédulas ficticias de prueba. Consulta las cuentas de cada rol en el README.</span></div>
-          <p className="privacy-note">Solo pacientes registrados en el padrón pueden crear una cuenta. La contraseña se establece desde un enlace seguro enviado al correo.</p>
+        {mode === 'login' && <>
+          <div className="demo-hint"><strong>¿Eres paciente y aún no tienes acceso?</strong><span>El administrador debe cargar tu cuenta. Recibirás un correo para crear tu contraseña.</span></div>
         </>}
       </div>
     </section>
@@ -452,7 +434,7 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
             <div className="appointment-info"><div className="appointment-line"><strong>{user.role === 'DOCTOR' ? appointment.startTime.slice(0, 5) : `${appointment.startTime.slice(0, 5)} · ${appointment.patientFirstName} ${appointment.patientLastName}`}</strong><StatusPill status={appointment.status} cancellationSource={appointment.cancellationSource} isPatient={isPatient} /></div><span>{user.role === 'DOCTOR' ? `Paciente · ${appointment.patientFirstName} ${appointment.patientLastName}` : `${appointment.doctorFirstName} ${appointment.doctorLastName} · Medicina General`}</span><small>Cédula {appointment.patientDocument}{appointment.defaultRoom ? ` · ${appointment.defaultRoom}` : ''}</small>
               {isPatient && appointment.status === 'CANCELLED' && (appointment.cancellationReason || appointment.cancellationSource) && <div className={`patient-cancellation-message ${appointment.cancellationSource === 'DOCTOR' ? 'by-doctor' : ''}`}><strong>{appointment.cancellationSource === 'DOCTOR' ? 'Tu médico canceló esta cita' : appointment.cancellationSource === 'PATIENT' ? 'Cancelaste esta cita' : appointment.cancellationSource === 'STAFF' ? 'Cita cancelada por SAVCM' : 'Motivo informado'}</strong>{appointment.cancellationReason && <span>{appointment.cancellationReason}</span>}</div>}
               <div className="appointment-actions">
-                {(user.role === 'PATIENT' || isAppointmentManager) && appointment.status === 'SCHEDULED' && <><button onClick={() => openReschedule(appointment)}>Reprogramar</button><button className="danger-link" disabled={cancellationTooLate} title={cancellationTooLate ? 'La cancelación debe hacerse con al menos 2 horas de anticipación.' : undefined} onClick={() => { setCancellationTarget(appointment); setCancellationReason(''); setCancellationError(''); }}>Cancelar</button>{cancellationTooLate && <small className="cancellation-window-note">Disponible hasta 2 horas antes de la cita</small>}</>}
+                {(user.role === 'PATIENT' || isAppointmentManager) && appointment.status === 'SCHEDULED' && <><button onClick={() => openReschedule(appointment)}>Reprogramar</button><button className="danger-link" disabled={cancellationTooLate} title={cancellationTooLate ? 'No se puede cancelar durante las 2 horas previas a la cita.' : undefined} onClick={() => { setCancellationTarget(appointment); setCancellationReason(''); setCancellationError(''); }}>Cancelar</button>{cancellationTooLate && <small className="cancellation-window-note">No se puede cancelar durante las 2 horas previas a la cita.</small>}</>}
                 {user.role === 'DOCTOR' && appointment.status === 'SCHEDULED' && <>{appointmentTimePassed(appointment) && <><button onClick={() => void setAppointmentStatus(appointment, 'COMPLETED')}>Marcar realizada</button><button onClick={() => void setAppointmentStatus(appointment, 'NO_SHOW')}>No asistió</button></>}<button className="danger-link" onClick={() => { setCancellationTarget(appointment); setCancellationReason(''); setCancellationError(''); }}>Cancelar y avisar</button></>}
                 {user.role === 'DOCTOR' && appointment.status === 'RESCHEDULED' && <button className="danger-link" onClick={() => { setCancellationTarget(appointment); setCancellationReason(''); setCancellationError(''); }}>Cancelar y avisar</button>}
               </div>
@@ -670,9 +652,9 @@ function AdminTools({ activePage, appointments, doctors, onDoctorsChanged, onSch
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
   const [roster, setRoster] = useState<RosterPatient[]>([]);
   const [rosterDocument, setRosterDocument] = useState('');
-  const [patientCsvFile, setPatientCsvFile] = useState<File | null>(null);
-  const [patientCsvResult, setPatientCsvResult] = useState<PatientCsvImportResult | null>(null);
-  const patientCsvInput = useRef<HTMLInputElement | null>(null);
+  const [patientImportFile, setPatientImportFile] = useState<File | null>(null);
+  const [patientImportResult, setPatientImportResult] = useState<PatientImportResult | null>(null);
+  const patientImportInput = useRef<HTMLInputElement | null>(null);
   const [patientSearch, setPatientSearch] = useState('');
   const [agendaFrom, setAgendaFrom] = useState(today());
   const [agendaTo, setAgendaTo] = useState(() => addDays(today(), 29));
@@ -741,28 +723,25 @@ function AdminTools({ activePage, appointments, doctors, onDoctorsChanged, onSch
   async function addRosterPatient(event: FormEvent) {
     event.preventDefault(); await addRosterDocument(rosterDocument); setRosterDocument('');
   }
-  function downloadPatientCsvTemplate() {
-    const csv = '\uFEFFcedula;nombres;apellidos;correo;telefono;fecha_nacimiento\r\n';
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  function downloadPatientXlsxTemplate() {
     const link = document.createElement('a');
-    link.href = url;
-    link.download = 'plantilla-pacientes-savcm.csv';
+    link.href = '/plantilla-pacientes-savcm.xlsx';
+    link.download = 'plantilla-pacientes-savcm.xlsx';
     link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  async function importPatientCsv(event: FormEvent) {
+  async function importPatientFile(event: FormEvent) {
     event.preventDefault();
-    if (!patientCsvFile) { setError('Selecciona primero un archivo CSV.'); return; }
-    setBusy(true); setError(''); setMessage(''); setPatientCsvResult(null);
+    if (!patientImportFile) { setError('Selecciona primero un archivo Excel o CSV.'); return; }
+    setBusy(true); setError(''); setMessage(''); setPatientImportResult(null);
     try {
       const formData = new FormData();
-      formData.append('file', patientCsvFile);
-      const result = await api<PatientCsvImportResult>('/admin/patients/import-csv', { method: 'POST', body: formData });
-      setPatientCsvResult(result);
+      formData.append('file', patientImportFile);
+      const result = await api<PatientImportResult>('/admin/patients/import', { method: 'POST', body: formData });
+      setPatientImportResult(result);
       const [updatedUsers, updatedRoster] = await Promise.all([api<ManagedUser[]>('/admin/users'), api<RosterPatient[]>('/admin/eps-roster')]);
       setManagedUsers(updatedUsers); setRoster(updatedRoster);
       setMessage(`Importación lista: ${result.created} pacientes creados${result.skipped ? ` y ${result.skipped} filas omitidas` : ''}.`);
-      if (result.created) { setPatientCsvFile(null); if (patientCsvInput.current) patientCsvInput.current.value = ''; }
+      if (result.created) { setPatientImportFile(null); if (patientImportInput.current) patientImportInput.current.value = ''; }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo importar el archivo.'); }
     finally { setBusy(false); }
   }
@@ -833,14 +812,14 @@ function AdminTools({ activePage, appointments, doctors, onDoctorsChanged, onSch
     {activePage === 'patients' && <div className="admin-page-body">
     <div className="admin-grid management-grid">
       <article className="card admin-card patient-import-card">
-        <div className="section-heading"><div><p className="eyebrow">IMPORTACIÓN MASIVA</p><h2>Crear pacientes desde CSV</h2><p className="section-subtitle">Descarga la plantilla, agrega una fila por paciente y súbela para crear sus cuentas.</p></div><span className="icon-bubble" aria-hidden="true">⇩</span></div>
-        <div className="patient-import-columns"><code>cedula · nombres · apellidos · correo · telefono · fecha_nacimiento</code><span>Usa fecha AAAA-MM-DD. Cada cuenta creada recibe por correo un enlace de un solo uso para establecer su propia contraseña. Se aceptan separadores coma o punto y coma, hasta 500 pacientes.</span></div>
-        <form className="patient-import-form" onSubmit={(event) => void importPatientCsv(event)}>
-          <button type="button" className="button secondary" onClick={downloadPatientCsvTemplate}>Descargar plantilla CSV</button>
-          <label className="patient-csv-file">Archivo CSV<input ref={patientCsvInput} required type="file" accept=".csv,text/csv" onChange={(event) => { setPatientCsvFile(event.target.files?.[0] ?? null); setPatientCsvResult(null); }} /></label>
-          <button className="button primary" disabled={busy || !patientCsvFile}>{busy ? 'Importando…' : 'Importar pacientes'}</button>
+        <div className="section-heading"><div><p className="eyebrow">IMPORTACIÓN MASIVA</p><h2>Crear pacientes desde Excel</h2><p className="section-subtitle">Descarga la plantilla, agrega una fila por paciente y súbela para crear sus cuentas.</p></div><span className="icon-bubble" aria-hidden="true">⇩</span></div>
+        <div className="patient-import-columns"><code>cedula · nombres · apellidos · correo · telefono · fecha_nacimiento</code><span>La cédula y el teléfono se conservan como texto. Ingresa la fecha como AAAA-MM-DD. Cada cuenta creada recibe por correo un enlace de un solo uso para establecer su contraseña. Se aceptan archivos XLSX o CSV, hasta 500 pacientes.</span></div>
+        <form className="patient-import-form" onSubmit={(event) => void importPatientFile(event)}>
+          <button type="button" className="button secondary" onClick={downloadPatientXlsxTemplate}>Descargar plantilla Excel</button>
+          <label className="patient-csv-file">Archivo Excel o CSV<input ref={patientImportInput} required type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={(event) => { setPatientImportFile(event.target.files?.[0] ?? null); setPatientImportResult(null); }} /></label>
+          <button className="button primary" disabled={busy || !patientImportFile}>{busy ? 'Importando…' : 'Importar pacientes'}</button>
         </form>
-        {patientCsvResult && <div className="patient-import-result" role="status"><strong>{patientCsvResult.created} creados · {patientCsvResult.skipped} omitidos de {patientCsvResult.totalRows} filas · {patientCsvResult.setupLinksSent} enlaces para crear contraseña enviados</strong>{patientCsvResult.setupLinkFailures.length > 0 && <p>No se enviaron los enlaces de las filas {patientCsvResult.setupLinkFailures.map((item) => item.row).join(', ')}. Indícales usar “¿Olvidaste tu contraseña?” para solicitar otro.</p>}{patientCsvResult.errors.length > 0 && <ul>{patientCsvResult.errors.map((item, index) => <li key={`${item.row}-${index}`}>Fila {item.row}: {item.message}</li>)}</ul>}</div>}
+        {patientImportResult && <div className="patient-import-result" role="status"><strong>{patientImportResult.created} creados · {patientImportResult.skipped} omitidos de {patientImportResult.totalRows} filas · {patientImportResult.setupLinksSent} enlaces para crear contraseña enviados</strong>{patientImportResult.setupLinkFailures.length > 0 && <p>No se enviaron los enlaces de las filas {patientImportResult.setupLinkFailures.map((item) => item.row).join(', ')}. Indícales usar “¿Olvidaste tu contraseña?” para solicitar otro.</p>}{patientImportResult.errors.length > 0 && <ul>{patientImportResult.errors.map((item, index) => <li key={`${item.row}-${index}`}>Fila {item.row}: {item.message}</li>)}</ul>}</div>}
       </article>
       <article className="card admin-card" id="admin-roster"><div className="section-heading"><div><p className="eyebrow">06 · VALIDACIÓN EPS</p><h2>Padrón de cédulas</h2></div><span className="icon-bubble">⌕</span></div>
         <form className="roster-form" onSubmit={(event) => void addRosterPatient(event)}><label>Nueva cédula autorizada<input required inputMode="numeric" value={rosterDocument} onChange={(event) => setRosterDocument(event.target.value)} /></label><button className="button secondary">Agregar</button></form>

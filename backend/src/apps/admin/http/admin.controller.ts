@@ -16,11 +16,14 @@ export class AdminController {
   constructor(private readonly management: UserManagementService) {}
 
   @Get('users') users() { return this.management.listUsers(); }
-  @Post('patients/import-csv')
+  @Post('patients/import')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
-  importPatientsCsv(@UploadedFile() file?: { buffer: Buffer }) {
-    if (!file) throw new BadRequestException('Adjunta un archivo CSV para importar.');
-    return this.management.importPatientsCsv(file.buffer.toString('utf8'));
+  importPatients(@UploadedFile() file?: { buffer: Buffer; originalname?: string }) {
+    if (!file) throw new BadRequestException('Adjunta la plantilla de pacientes en formato .xlsx.');
+    const extension = file.originalname?.toLocaleLowerCase().split('.').pop();
+    if (extension === 'xlsx') return this.management.importPatientsXlsx(file.buffer);
+    if (extension === 'csv') return this.management.importPatientsCsv(file.buffer.toString('utf8'));
+    throw new BadRequestException('El archivo debe estar en formato .xlsx o .csv.');
   }
   @Patch('users/:id/active') setUserActive(
     @Param('id', ParseUUIDPipe) id: string,

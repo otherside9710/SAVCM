@@ -30,9 +30,6 @@ h1,h2,h3,p{margin-top:0}
 .muted{color:var(--muted);font-size:13px;line-height:1.55}
 .auth-card>.muted{margin-bottom:24px}
 .mobile-brand{display:none}
-.auth-tabs{display:grid;grid-template-columns:1fr 1fr;padding:4px;background:#e8f0ec;border-radius:11px;margin-bottom:22px}
-.auth-tabs button{border:0;background:transparent;border-radius:8px;padding:10px;color:#72817b;font-size:12px;font-weight:700}
-.auth-tabs button.active{background:white;color:var(--green);box-shadow:0 2px 8px rgba(30,75,61,.08)}
 .forgot-link,.auth-back{justify-self:end;border:0;background:transparent;color:#176451;padding:0;font-size:11px;font-weight:700;text-decoration:underline;text-underline-offset:3px}
 .auth-back{justify-self:start;margin:0 0 20px;text-decoration:none}
 .form-stack{display:grid;gap:14px}
@@ -70,7 +67,6 @@ input::placeholder{color:#a2b0aa;font-weight:400}
 .auth-login .auth-panel{height:100%;min-height:0;padding-block:clamp(16px,3vh,42px)}
 .auth-login .auth-card{padding-block:0}
 .auth-login .auth-card>.muted{margin-bottom:clamp(12px,2.4vh,24px)}
-.auth-login .auth-tabs{margin-bottom:clamp(12px,2.2vh,22px)}
 .auth-login .form-stack{gap:clamp(9px,1.5vh,14px)}
 .auth-login .demo-hint,.auth-login .privacy-note{margin-top:clamp(10px,1.8vh,18px)}
 @media(max-width:680px){
@@ -414,9 +410,6 @@ body{background:#f5f8fd;color:#101d3a}
 .intro-points{color:#eff7ff}
 .intro-points b{color:#a9d6ff}
 .leaf-art span{border-color:#8ebce9}
-.auth-tabs{background:#e8f2ff}
-.auth-tabs button{color:#71819a}
-.auth-tabs button.active{color:#0874d1;box-shadow:0 2px 8px rgba(20,88,150,.11)}
 .forgot-link,.auth-back{color:#0874d1}
 label{color:#263b5e}
 input,select{border-color:#dbe5f2;color:#1b2d4c}
@@ -787,15 +780,15 @@ input::placeholder{color:#94a2b8}
 .admin-agenda-empty{display:grid;gap:5px;place-content:center;min-height:115px;padding:20px;border:1px dashed #d8e4f1;border-radius:12px;background:#fbfdff;color:#71819a;text-align:center;font-size:12px}
 .admin-agenda-empty strong{color:#263c5f;font-size:13px}
 .admin-search-label{margin-bottom:11px}
-.admin-patient-list{display:grid;gap:7px;max-height:460px;overflow:auto;padding:1px 3px 1px 0}
-.admin-patient-row{display:grid;grid-template-columns:minmax(180px,1.4fr) auto auto minmax(170px,1fr);align-items:center;gap:9px;padding:10px 11px;border:1px solid #e3ebf5;border-radius:11px;background:#fff}
+.admin-patient-list{display:grid;gap:7px;max-height:460px;overflow:auto;padding:1px 3px 1px 0;container-type:inline-size}
+.admin-patient-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;align-items:center;gap:9px;min-width:0;padding:10px 11px;border:1px solid #e3ebf5;border-radius:11px;background:#fff}
 .admin-patient-person{display:grid;gap:3px;min-width:0}
 .admin-patient-person strong{overflow:hidden;color:#243b5e;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .admin-patient-person small{overflow:hidden;color:#7a8ba3;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
 .admin-account-state{width:max-content;padding:5px 8px;border-radius:999px;font-size:9px;font-weight:700;white-space:nowrap}
 .admin-account-state.is-active{background:#e8f7ef;color:#31815e}
 .admin-account-state.is-inactive{background:#f0f2f6;color:#7f8ba0}
-.admin-patient-actions{display:flex;justify-content:flex-end;gap:8px}
+.admin-patient-actions{display:flex;justify-content:flex-end;gap:8px;min-width:0;flex-wrap:wrap}
 .admin-patient-actions button{padding:7px 8px;border:1px solid #dbe5f1;border-radius:8px;background:#f8fbff;color:#2873b2;font-size:9px;font-weight:700;white-space:nowrap}
 .admin-patient-actions button:hover{border-color:#a8c9e9;background:#eef6ff}
 .admin-dashboard .report-card{margin-top:0}
@@ -805,6 +798,16 @@ input::placeholder{color:#94a2b8}
 .admin-appointment-filters{box-sizing:border-box;width:100%;grid-template-columns:repeat(4,minmax(125px,1fr)) minmax(190px,1.35fr) auto}
 @media(max-width:1080px){.admin-appointment-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.admin-results-count{padding-bottom:8px}.admin-patient-row{grid-template-columns:minmax(160px,1fr) auto auto}.admin-patient-actions{grid-column:1/-1;justify-content:flex-start}.admin-agenda-row{grid-template-columns:48px minmax(140px,1.1fr) minmax(150px,1fr) auto}}
 @media(max-width:760px){.admin-dashboard{padding:22px 16px 20px}.admin-dashboard .welcome-row{min-height:0;align-items:flex-start;flex-direction:column;gap:15px;padding:24px 22px;border-radius:16px}.admin-dashboard .welcome-copy{max-width:100%}.admin-dashboard .welcome-row h1{font-size:34px}.admin-dashboard .welcome-stamp{width:100%;min-width:0;height:auto;min-height:72px;padding:12px 15px;transform:none}.admin-dashboard .welcome-stamp strong{margin-top:3px;font-size:17px}.admin-quick-nav{margin-bottom:13px}.admin-quick-nav a{padding:8px 11px;font-size:11px}.admin-overview-cards{grid-template-columns:1fr 1fr;gap:8px}.admin-overview-cards article{min-height:82px;padding:11px}.admin-overview-cards strong{font-size:22px}.admin-workspace-heading{align-items:flex-start;flex-direction:column;gap:10px}.admin-workspace-heading h2{font-size:22px}.admin-appointment-filters{grid-template-columns:1fr 1fr;gap:8px;padding:10px}.admin-appointment-filters label,.admin-agenda-filters label,.admin-search-label{font-size:10px}.admin-appointment-filters input,.admin-appointment-filters select,.admin-agenda-filters input,.admin-agenda-filters select,.admin-search-label input{min-height:38px;padding:7px;font-size:11px}.admin-appointment-search{grid-column:1/-1}.admin-results-count{grid-column:1/-1;padding:0 2px}.admin-agenda-card{padding:17px 14px}.admin-agenda-card .section-heading{gap:9px}.admin-agenda-card .section-heading h2{font-size:18px}.admin-agenda-filters{grid-template-columns:1fr 1fr;gap:8px;padding:10px}.admin-agenda-filters label:last-child{grid-column:1/-1}.admin-agenda-metrics{grid-template-columns:1fr 1fr;gap:6px}.admin-agenda-metrics span{padding:8px;font-size:9px}.admin-agenda-metrics strong{font-size:15px}.admin-agenda-row{grid-template-columns:44px minmax(0,1fr) auto;gap:8px;padding:9px}.admin-agenda-date{width:42px;height:48px}.admin-agenda-details strong{font-size:10px}.admin-agenda-details span{font-size:10px}.admin-agenda-details small{font-size:9px}.admin-agenda-booking{grid-column:2/3}.admin-agenda-action{grid-column:3/4;grid-row:1/3;padding:6px;font-size:9px}.admin-patient-row{grid-template-columns:minmax(0,1fr) auto;gap:7px}.admin-patient-person{grid-column:1/-1}.admin-patient-actions{grid-column:1/-1;flex-wrap:wrap}.admin-patient-actions button{flex:1}.admin-patient-card .section-heading{gap:8px}.admin-patient-card .section-heading h2{font-size:18px}}
+
+@container (max-width: 940px){
+  .admin-patient-row{grid-template-columns:minmax(0,1fr) auto auto}
+  .admin-patient-person{grid-column:1/-1}
+  .admin-patient-actions{grid-column:1/-1;justify-content:flex-start}
+}
+@container (max-width: 560px){
+  .admin-patient-row{grid-template-columns:minmax(0,1fr) auto}
+  .admin-patient-actions button{flex:1}
+}
 
 /* Final admin page layout overrides: only the selected section is shown. */
 .admin-app-shell .topbar{height:82px}

@@ -89,7 +89,7 @@ export class AppointmentsService {
       if (!appointment) throw new NotFoundException('No encontramos la cita solicitada.');
       this.assertCanManage(appointment, actor);
       if (actor.role === UserRole.PATIENT && minutesUntilColombiaDateTime(appointment.workDate, appointment.startTime) < 120) {
-        throw new BadRequestException('Solo puedes cancelar una cita con al menos 2 horas de anticipación.');
+        throw new BadRequestException('No se puede cancelar durante las 2 horas previas a la cita.');
       }
       const doctorCanCancelRescheduled = actor.role === UserRole.DOCTOR && appointment.status === AppointmentStatus.RESCHEDULED;
       if (appointment.status !== AppointmentStatus.SCHEDULED && !doctorCanCancelRescheduled) {

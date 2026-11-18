@@ -2,9 +2,9 @@
 
 ## Qué está construido
 
-- Aplicación web en React para iniciar sesión, registrarse, consultar disponibilidad y gestionar citas.
+- Aplicación web en React para iniciar sesión, consultar disponibilidad y gestionar citas.
 - API en NestJS organizada por contextos, con PostgreSQL como persistencia.
-- Padrón inicial de cédulas: el registro público se rechaza si la cédula no está activa.
+- Padrón inicial de cédulas: el administrador crea pacientes desde la carga masiva y se envía un enlace para establecer la contraseña.
 - Administración del padrón EPS y activación o suspensión de cuentas desde el rol administrador.
 - Roles de paciente, médico y administración.
 - Agendamiento con protección ante solicitudes simultáneas y citas duplicadas.

@@ -1,25 +1,21 @@
 # Flujo del Sistema de Agendamiento Virtual de Citas de Medicina General
 
-El diagrama resume los flujos implementados en SAVCM: registro y acceso, recuperación de contraseña, reserva y gestión de citas, operación médica y administración. Los permisos distinguen los roles de paciente, médico y administrador; no existe un rol de recepción.
+El diagrama resume los flujos implementados en SAVCM: acceso, configuración y recuperación de contraseña, reserva y gestión de citas, operación médica y administración. Los permisos distinguen los roles de paciente, médico y administrador; no existe un rol de recepción.
 
 ```mermaid
 flowchart TD
     START([Inicio]) --> PORTAL[Abre SAVCM desde un dispositivo con internet]
-    PORTAL --> ACCOUNT{¿Ya tiene cuenta?}
-
-    ACCOUNT -- No --> REGISTER[Completa datos personales, cédula, correo, teléfono, nacimiento y contraseña]
-    REGISTER --> REG_VALID{¿Formulario válido?}
-    REG_VALID -- No --> REG_ERROR[Mostrar campos por corregir]
-    REG_ERROR --> REGISTER
-    REG_VALID -- Sí --> EPS_ACTIVE{¿La cédula está activa en el padrón EPS?}
-    EPS_ACTIVE -- No --> EPS_ERROR[Rechazar registro e indicar que contacte a la IPS]
-    EPS_ERROR --> END([Fin o volver al registro])
+    PORTAL --> LOGIN[Ingresa con cédula o correo y contraseña]
+    ADMIN_AREA -- Importar pacientes --> ADMIN_LOAD[Admin importa pacientes con plantilla Excel/CSV]
+    ADMIN_LOAD --> EPS_ACTIVE{¿Cédula activa en padrón y datos válidos?}
+    EPS_ACTIVE -- No --> IMPORT_ERROR[Reportar fila con error y continuar la importación]
     EPS_ACTIVE -- Sí --> DUPLICATE{¿Cédula o correo ya registrados?}
-    DUPLICATE -- Sí --> DUPLICATE_ERROR[Informar duplicidad y solicitar corrección]
-    DUPLICATE_ERROR --> REGISTER
-    DUPLICATE -- No --> REGISTERED[Crear cuenta de paciente con contraseña protegida e iniciar sesión]
-
-    ACCOUNT -- Sí --> LOGIN[Ingresa con cédula o correo y contraseña]
+    DUPLICATE -- Sí --> DUPLICATE_ERROR[Omitir fila e informar duplicidad]
+    DUPLICATE -- No --> CREATE_PATIENT[Crear cuenta de paciente con clave aleatoria protegida]
+    CREATE_PATIENT --> SETUP_EMAIL[Enviar enlace de un solo uso para crear contraseña]
+    SETUP_EMAIL --> ADMIN_HOME
+    SETUP_EMAIL --> SETUP_PASSWORD[Paciente establece su contraseña desde el correo]
+    SETUP_PASSWORD --> LOGIN
     LOGIN --> FORGOT{¿Solicita recuperar la contraseña?}
     FORGOT -- No --> AUTH{¿Credenciales correctas y cuenta activa?}
     AUTH -- No --> AUTH_ERROR[Mostrar error de autenticación]
@@ -32,8 +28,6 @@ flowchart TD
     RESET_ERROR --> RESET_REQUEST
     RESET_VALID -- Sí --> RESET_SAVE[Guardar nueva contraseña e invalidar sesiones anteriores]
     RESET_SAVE --> LOGIN
-    REGISTERED --> ROLE
-
     ROLE -- Paciente --> PATIENT_START[Consultar horarios futuros por fecha y médico]
     PATIENT_START --> SLOT_CHOICE{¿Elige un horario disponible?}
     SLOT_CHOICE -- No --> PATIENT_START
@@ -128,7 +122,7 @@ flowchart TD
 
 | Área | Comportamiento reflejado |
 | --- | --- |
-| Registro y acceso | Registro de pacientes solo con cédula activa en el padrón EPS; acceso con cédula o correo; autorización por rol. |
+| Acceso y alta de pacientes | No hay registro público. El administrador carga pacientes por Excel/CSV, el sistema valida cédula y duplicados y envía un enlace para crear contraseña; acceso con cédula o correo y autorización por rol. |
 | Recuperación de contraseña | Enlace de un solo uso, vence a los 30 minutos y tiene espera de 60 segundos entre solicitudes; al cambiar la contraseña se invalidan las sesiones anteriores. |
 | Reserva | Consulta de disponibilidad futura y reserva transaccional; se comprueban el estado del horario y del médico, la ocupación y las citas simultáneas del paciente. |
 | Cancelación | Paciente cancela sus citas agendadas; médico cancela citas agendadas o reprogramadas de su agenda; administrador cancela citas agendadas. Se guarda motivo y origen (`DOCTOR`, `PATIENT` o `STAFF`). La cancelación del médico avisa por correo y el motivo queda en el historial aunque falle el envío. |

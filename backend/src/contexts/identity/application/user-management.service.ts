@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, QueryFailedError, Repository } from 'typeorm';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
+import { inflateRawSync } from 'node:zlib';
 import { DoctorOrmEntity, EpsPatientOrmEntity, UserOrmEntity } from '../../shared/infrastructure/database/entities';
 import { UserRole } from '../domain/role';
 import { colombiaDate } from '../../shared/domain/colombia-time';
@@ -65,16 +66,23 @@ export class UserManagementService {
   }
 
   async importPatientsCsv(csvText: string) {
+    return this.importPatientsRecords(parseCsv(csvText), 'CSV');
+  }
+
+  async importPatientsXlsx(fileBuffer: Buffer) {
+    return this.importPatientsRecords(parseXlsx(fileBuffer), 'Excel');
+  }
+
+  private async importPatientsRecords(records: string[][], fileType: 'CSV' | 'Excel') {
     this.authService.assertPasswordSetupReady();
-    const records = parseCsv(csvText);
-    if (records.length < 2) throw new BadRequestException('El CSV debe incluir la fila de encabezados y al menos un paciente.');
+    if (records.length < 2) throw new BadRequestException(`El archivo ${fileType} debe incluir los encabezados y al menos un paciente.`);
     const headers = records[0].map(normalizeHeader);
     const requiredHeaders = ['cedula', 'nombres', 'apellidos', 'correo', 'telefono', 'fecha_nacimiento'];
     const missing = requiredHeaders.filter((header) => !headers.includes(header));
     if (missing.length) throw new BadRequestException(`Faltan columnas requeridas: ${missing.join(', ')}.`);
 
     const rows = records.slice(1).map((cells, index) => ({ cells, row: index + 2 })).filter(({ cells }) => cells.some((cell) => cell.trim()));
-    if (!rows.length) throw new BadRequestException('El CSV no contiene pacientes para importar.');
+    if (!rows.length) throw new BadRequestException(`El archivo ${fileType} no contiene pacientes para importar.`);
     if (rows.length > 500) throw new BadRequestException('Puedes importar hasta 500 pacientes por archivo.');
 
     const column = Object.fromEntries(headers.map((header, index) => [header, index]));
@@ -177,6 +185,233 @@ export class UserManagementService {
     }
     return { totalRows: rows.length, created: prepared.length, skipped: rows.length - prepared.length, setupLinksSent, setupLinkFailures, errors };
   }
+}
+
+interface XlsxZipEntry {
+  name: string;
+  flags: number;
+  method: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  localHeaderOffset: number;
+  centralDirectoryOffset: number;
+}
+
+const MAX_XLSX_ENTRIES = 256;
+const MAX_XLSX_ENTRY_BYTES = 4 * 1024 * 1024;
+const MAX_XLSX_TOTAL_BYTES = 8 * 1024 * 1024;
+const MAX_XLSX_ROWS = 501;
+const MAX_XLSX_COLUMNS = 64;
+
+function parseXlsx(buffer: Buffer): string[][] {
+  const entries = readXlsxZipEntries(buffer);
+  const workbookXml = readXlsxEntry(buffer, entries.get('xl/workbook.xml'));
+  const relationshipsXml = readXlsxEntry(buffer, entries.get('xl/_rels/workbook.xml.rels'));
+  const firstSheet = workbookXml.match(/<(?:[\w.-]+:)?sheet\b([^>]*)\/?\s*>/i)?.[1];
+  const relationshipId = firstSheet && getXmlAttribute(firstSheet, 'r:id');
+  if (!relationshipId) throw new BadRequestException('El archivo Excel no contiene una hoja de pacientes válida.');
+
+  let target: string | undefined;
+  const relationshipPattern = /<(?:[\w.-]+:)?Relationship\b([^>]*)\/?\s*>/gi;
+  for (const match of relationshipsXml.matchAll(relationshipPattern)) {
+    const attributes = match[1];
+    if (getXmlAttribute(attributes, 'Id') === relationshipId) {
+      target = getXmlAttribute(attributes, 'Target');
+      break;
+    }
+  }
+  if (!target) throw new BadRequestException('No se pudo abrir la primera hoja del archivo Excel.');
+  const sheetPath = normalizeWorksheetTarget(target);
+  const worksheetXml = readXlsxEntry(buffer, entries.get(sheetPath));
+  const sharedStringsEntry = entries.get('xl/sharedStrings.xml');
+  const sharedStrings = sharedStringsEntry ? parseSharedStrings(readXlsxEntry(buffer, sharedStringsEntry)) : [];
+  const date1904 = /<(?:[\w.-]+:)?workbookPr\b[^>]*\bdate1904=["'](?:1|true)["']/i.test(workbookXml);
+  const records: string[][] = [];
+  const rowPattern = /<(?:[\w.-]+:)?row\b([^>]*)>([\s\S]*?)<\/(?:[\w.-]+:)?row>/gi;
+
+  for (const rowMatch of worksheetXml.matchAll(rowPattern)) {
+    const rowNumber = Number(getXmlAttribute(rowMatch[1], 'r'));
+    if (!Number.isInteger(rowNumber) || rowNumber < 1 || rowNumber > MAX_XLSX_ROWS) {
+      throw new BadRequestException(`El archivo Excel debe tener como máximo ${MAX_XLSX_ROWS - 1} filas de datos.`);
+    }
+    while (records.length < rowNumber) records.push([]);
+    const row = records[rowNumber - 1];
+    const cellPattern = /<(?:[\w.-]+:)?c\b([^>]*)(?:\/>|>([\s\S]*?)<\/(?:[\w.-]+:)?c>)/gi;
+    for (const cellMatch of rowMatch[2].matchAll(cellPattern)) {
+      const reference = getXmlAttribute(cellMatch[1], 'r');
+      const column = reference ? xlsxColumnIndex(reference) : 0;
+      if (column < 1 || column > MAX_XLSX_COLUMNS) {
+        throw new BadRequestException(`El archivo Excel debe tener como máximo ${MAX_XLSX_COLUMNS} columnas.`);
+      }
+      const cellXml = cellMatch[2] ?? '';
+      if (/<(?:[\w.-]+:)?f\b/i.test(cellXml)) throw new BadRequestException('No uses fórmulas en la plantilla. Ingresa los valores directamente.');
+      const type = getXmlAttribute(cellMatch[1], 't');
+      const valueMatch = cellXml.match(/<(?:[\w.-]+:)?v\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?v>/i);
+      const rawValue = valueMatch ? decodeXml(valueMatch[1]) : '';
+      let value = '';
+      if (type === 's' && rawValue) {
+        value = sharedStrings[Number(rawValue)] ?? '';
+      } else if (type === 'inlineStr') {
+        value = readXmlText(cellXml.match(/<(?:[\w.-]+:)?is\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?is>/i)?.[1] ?? '');
+      } else if (rawValue) {
+        value = column === 6 && type !== 'str'
+          ? excelSerialDateToIso(rawValue, date1904)
+          : rawValue;
+      }
+      row[column - 1] = value;
+    }
+  }
+
+  return records;
+}
+
+function readXlsxZipEntries(buffer: Buffer): Map<string, XlsxZipEntry> {
+  const endOfDirectorySignature = 0x06054b50;
+  const searchStart = Math.max(0, buffer.length - 22 - 0xffff);
+  let endOfDirectory = -1;
+  for (let offset = buffer.length - 22; offset >= searchStart; offset -= 1) {
+    if (buffer.readUInt32LE(offset) !== endOfDirectorySignature) continue;
+    if (offset + 22 + buffer.readUInt16LE(offset + 20) === buffer.length) {
+      endOfDirectory = offset;
+      break;
+    }
+  }
+  if (endOfDirectory < 0) throw new BadRequestException('El archivo no es un libro Excel .xlsx válido.');
+
+  const diskNumber = buffer.readUInt16LE(endOfDirectory + 4);
+  const directoryDisk = buffer.readUInt16LE(endOfDirectory + 6);
+  const entriesOnDisk = buffer.readUInt16LE(endOfDirectory + 8);
+  const entryCount = buffer.readUInt16LE(endOfDirectory + 10);
+  const directorySize = buffer.readUInt32LE(endOfDirectory + 12);
+  const directoryOffset = buffer.readUInt32LE(endOfDirectory + 16);
+  if (diskNumber !== 0 || directoryDisk !== 0 || entriesOnDisk !== entryCount || entryCount > MAX_XLSX_ENTRIES
+    || entryCount === 0xffff || directorySize === 0xffffffff || directoryOffset === 0xffffffff
+    || directorySize > 1024 * 1024 || directoryOffset + directorySize > endOfDirectory) {
+    throw new BadRequestException('El archivo Excel es demasiado grande o usa un formato de compresión no compatible.');
+  }
+
+  const entries = new Map<string, XlsxZipEntry>();
+  let offset = directoryOffset;
+  let totalUncompressedBytes = 0;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (offset + 46 > directoryOffset + directorySize || buffer.readUInt32LE(offset) !== 0x02014b50) {
+      throw new BadRequestException('El archivo Excel está dañado.');
+    }
+    const flags = buffer.readUInt16LE(offset + 8);
+    const method = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localHeaderOffset = buffer.readUInt32LE(offset + 42);
+    const entryEnd = offset + 46 + nameLength + extraLength + commentLength;
+    if (entryEnd > directoryOffset + directorySize || compressedSize === 0xffffffff
+      || uncompressedSize === 0xffffffff || localHeaderOffset === 0xffffffff
+      || (flags & 0x0001) !== 0 || ![0, 8].includes(method)
+      || uncompressedSize > MAX_XLSX_ENTRY_BYTES) {
+      throw new BadRequestException('El archivo Excel es demasiado grande o usa un formato de compresión no compatible.');
+    }
+    const name = buffer.subarray(offset + 46, offset + 46 + nameLength).toString('utf8');
+    if (name.includes('..') || name.startsWith('/') || entries.has(name)) {
+      throw new BadRequestException('El archivo Excel contiene rutas o elementos no válidos.');
+    }
+    totalUncompressedBytes += uncompressedSize;
+    if (totalUncompressedBytes > MAX_XLSX_TOTAL_BYTES) {
+      throw new BadRequestException('El archivo Excel supera el tamaño permitido después de descomprimirlo.');
+    }
+    entries.set(name, { name, flags, method, compressedSize, uncompressedSize, localHeaderOffset, centralDirectoryOffset: directoryOffset });
+    offset = entryEnd;
+  }
+  if (offset !== directoryOffset + directorySize) throw new BadRequestException('El archivo Excel está dañado.');
+  return entries;
+}
+
+function readXlsxEntry(buffer: Buffer, entry?: XlsxZipEntry): string {
+  if (!entry) throw new BadRequestException('El archivo Excel no contiene las hojas requeridas. Descarga una plantilla SAVCM nueva.');
+  const offset = entry.localHeaderOffset;
+  if (offset + 30 > buffer.length || buffer.readUInt32LE(offset) !== 0x04034b50) {
+    throw new BadRequestException('El archivo Excel está dañado.');
+  }
+  const nameLength = buffer.readUInt16LE(offset + 26);
+  const extraLength = buffer.readUInt16LE(offset + 28);
+  const dataStart = offset + 30 + nameLength + extraLength;
+  const dataEnd = dataStart + entry.compressedSize;
+  if (dataEnd > buffer.length || dataEnd > entry.centralDirectoryOffset) {
+    throw new BadRequestException('El archivo Excel está dañado.');
+  }
+  try {
+    const compressed = buffer.subarray(dataStart, dataEnd);
+    const output = entry.method === 0
+      ? compressed
+      : inflateRawSync(compressed, { maxOutputLength: MAX_XLSX_ENTRY_BYTES });
+    if (output.length !== entry.uncompressedSize) throw new Error('Unexpected entry size');
+    return output.toString('utf8');
+  } catch {
+    throw new BadRequestException('No se pudo leer una hoja del archivo Excel.');
+  }
+}
+
+function parseSharedStrings(xml: string): string[] {
+  const values: string[] = [];
+  for (const match of xml.matchAll(/<(?:[\w.-]+:)?si\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?si>/gi)) values.push(readXmlText(match[1]));
+  return values;
+}
+
+function readXmlText(xml: string): string {
+  return Array.from(xml.matchAll(/<(?:[\w.-]+:)?t\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?t>/gi), (match) => decodeXml(match[1])).join('');
+}
+
+function decodeXml(value: string): string {
+  return value.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (entity, name: string) => {
+    const lower = name.toLowerCase();
+    if (lower === 'amp') return '&';
+    if (lower === 'lt') return '<';
+    if (lower === 'gt') return '>';
+    if (lower === 'quot') return '"';
+    if (lower === 'apos') return "'";
+    const codePoint = lower.startsWith('#x') ? Number.parseInt(lower.slice(2), 16) : Number.parseInt(lower.slice(1), 10);
+    return Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
+  });
+}
+
+function getXmlAttribute(attributes: string, name: string): string | undefined {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return attributes.match(new RegExp(`(?:^|\\s)${escapedName}=["']([^"']*)["']`, 'i'))?.[1];
+}
+
+function normalizeWorksheetTarget(target: string): string {
+  const base = target.startsWith('/') ? target.slice(1) : `xl/${target}`;
+  const parts: string[] = [];
+  for (const part of base.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      if (!parts.length) throw new BadRequestException('La ruta de la hoja Excel no es válida.');
+      parts.pop();
+    } else parts.push(part);
+  }
+  const normalized = parts.join('/');
+  if (!normalized.startsWith('xl/worksheets/') || normalized.includes('..')) {
+    throw new BadRequestException('La primera hoja del Excel no es válida. Descarga una plantilla SAVCM nueva.');
+  }
+  return normalized;
+}
+
+function xlsxColumnIndex(reference: string): number {
+  const letters = reference.match(/^([A-Z]+)\d+$/i)?.[1]?.toUpperCase();
+  if (!letters) return 0;
+  let index = 0;
+  for (const letter of letters) index = index * 26 + letter.charCodeAt(0) - 64;
+  return index;
+}
+
+function excelSerialDateToIso(serialText: string, date1904: boolean): string {
+  const serial = Number(serialText);
+  if (!Number.isFinite(serial) || serial < 0 || serial > 2958465) return serialText;
+  const wholeDays = Math.floor(serial);
+  const adjustedDays = !date1904 && wholeDays >= 60 ? wholeDays - 1 : wholeDays;
+  const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 31);
+  return new Date(epoch + adjustedDays * 86_400_000).toISOString().slice(0, 10);
 }
 
 function normalizeHeader(value: string) {

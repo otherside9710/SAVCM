@@ -1,7 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
-  ForbiddenException,
   Injectable,
   Inject,
   Logger,
@@ -14,13 +12,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { compare, hash } from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { DataSource, QueryFailedError, Repository } from 'typeorm';
-import { RegisterDto } from '../../../apps/auth/http/dto/register.dto';
 import { LoginDto } from '../../../apps/auth/http/dto/login.dto';
 import { RequestPasswordResetDto } from '../../../apps/auth/http/dto/request-password-reset.dto';
 import { ResetPasswordDto } from '../../../apps/auth/http/dto/reset-password.dto';
 import { DoctorOrmEntity, EpsPatientOrmEntity, PasswordResetTokenOrmEntity, UserOrmEntity } from '../../shared/infrastructure/database/entities';
 import { UserRole } from '../domain/role';
-import { colombiaDate } from '../../shared/domain/colombia-time';
 import { PASSWORD_RESET_EMAIL, PasswordResetEmailPort } from './password-reset-email.port';
 
 const PASSWORD_RESET_RESPONSE = 'Si existe una cuenta activa con ese correo, recibirás instrucciones para cambiar la contraseña.';
@@ -41,46 +37,6 @@ export class AuthService {
     private readonly config: ConfigService,
     @Inject(PASSWORD_RESET_EMAIL) private readonly passwordResetEmail: PasswordResetEmailPort,
   ) {}
-
-  async register(input: RegisterDto) {
-    const documentId = input.documentId.trim();
-    const email = input.email.trim().toLowerCase();
-    if (input.birthDate > colombiaDate()) throw new BadRequestException('La fecha de nacimiento no puede estar en el futuro.');
-    const eligible = await this.epsPatients.findOneBy({ documentType: input.documentType, documentId, active: true });
-    if (!eligible) {
-      throw new ForbiddenException('La cédula no aparece en el padrón activo de pacientes de la EPS. Contacta a la IPS para validar tu afiliación.');
-    }
-    const existing = await this.users.findOne({ where: [{ documentId }, { email }] });
-    if (existing) throw new ConflictException('La cédula o el correo ya tienen una cuenta registrada.');
-    this.assertPasswordSetupReady();
-
-    let user: UserOrmEntity;
-    try {
-      user = await this.users.save(this.users.create({
-        documentType: input.documentType,
-        documentId,
-        email,
-        passwordHash: await hash(randomBytes(32).toString('base64url'), 12),
-        firstName: input.firstName.trim(),
-        lastName: input.lastName.trim(),
-        phone: input.phone.trim(),
-        birthDate: input.birthDate,
-        role: UserRole.PATIENT,
-        active: true,
-      }));
-    } catch (error) {
-      if (error instanceof QueryFailedError && (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === '23505') {
-        throw new ConflictException('La cédula o el correo ya tienen una cuenta registrada.');
-      }
-      throw error;
-    }
-    const emailSent = await this.sendPasswordSetupForUser(user);
-    return {
-      message: emailSent
-        ? 'Cuenta creada. Revisa tu correo y sigue el enlace para establecer tu contraseña; vence en 30 minutos.'
-        : 'Cuenta creada, pero no se pudo enviar el enlace. Usa “¿Olvidaste tu contraseña?” para solicitar uno nuevo.',
-    };
-  }
 
   async login(input: LoginDto) {
     const identifier = input.identifier.trim();
